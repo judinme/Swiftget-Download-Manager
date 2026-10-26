@@ -107,6 +107,12 @@ if ($LASTEXITCODE -ne 0 -or -not (Test-Path $msiOut)) {
     exit 1
 }
 
+# Apply visual defect fix to ExitDialog OptionalCheckBox (eliminates grey button-face rectangle on pure white dialog background)
+$patchScript = Join-Path $PSScriptRoot "patch-msi-dialogs.ps1"
+if (Test-Path $patchScript) {
+    & $patchScript -MsiPath $msiOut
+}
+
 # 5. Compute Checksum & Update Manifests
 Write-Host "`n[5/5] Computing SHA-256 Checksums & Generating Manifests..." -ForegroundColor Yellow
 $hashBytes = (Get-FileHash -Path $msiOut -Algorithm SHA256).Hash.ToLowerInvariant()

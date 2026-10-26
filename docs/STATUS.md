@@ -177,3 +177,23 @@ Last Updated: 2026-10-24
   - Total automated tests passing: **495 tests** (476 .NET across all 7 test projects + 19 Node.js extension tests).
   - All test gates passing in `scripts/run-all.ps1 -SkipLint`.
   - Release MSI packaged: `dist/SwiftGet-1.0.0-x64.msi` (54.14 MB, SHA-256: `70df75e07a93ed8483e19afffd78674f0f7371af9d5676572aced9649f1b04ee`).
+
+## WiX MSI Installer ExitDialog Visual Defect Remediation
+- [x] **ExitDialog Checkbox Grey Rectangle Elimination**:
+  - **Issue Diagnosis & Root Cause**:
+    - On the final "Completed the SwiftGet Download Manager Setup Wizard" dialog (`ExitDialog`), the "Launch SwiftGet Download Manager" checkbox (`OptionalCheckBox`) rendered atop an unsightly grey block (`#F0F0F0`, Win32 `COLOR_BTNFACE`) spanning the right pane of the white (`#FFFFFF`) `dialog.bmp` background.
+    - Verified root cause in MSI `Control` table: `OptionalCheckBox` had dimensions `220x40` DLUs with `Attributes=2` (`Enabled`). Windows Installer uses the Win32 `BUTTON` window class, which does not support transparency and ignores `msidbControlAttributesTransparent` (`0x10000`), painting its entire bounding rectangle with `COLOR_BTNFACE`.
+    - Examined all other wizard dialogs (`WelcomeDlg`, `LicenseAgreementDlg`, `InstallDirDlg`, `VerifyReadyDlg`, `MaintenanceWelcomeDlg`, `MaintenanceTypeDlg`): all controls sit on the default dialog background below the header banner, so only `ExitDialog` had this mismatched white canvas defect.
+  - **Targeted Architecture & Implementation**:
+    - Created `scripts/patch-msi-dialogs.ps1` and integrated it directly into the release packaging pipeline (`scripts/package.ps1`).
+    - Resized `OptionalCheckBox` to `10x10` DLUs (`X=135, Y=190`), restricting the button surface strictly to the checkbox square glyph with zero external grey padding.
+    - Preserved full accessible text `"Launch SwiftGet Download Manager"` on the CheckBox control so screen readers (MSAA/UIA) read the full accessible label and state.
+    - Inserted transparent companion `Text` control `OptionalCheckBoxText` at `X=148, Y=190, Width=207, Height=14` with `Attributes=196611` (`Transparent="yes"`), which Windows Installer renders seamlessly over `dialog.bmp` without background fill.
+    - Set `Control_Next = null` on `OptionalCheckBoxText` (TabSkip) to maintain correct dialog tab cycle.
+    - Added corresponding `ControlCondition` showing `OptionalCheckBoxText` when `WIXUI_EXITDIALOGOPTIONALCHECKBOXTEXT AND NOT Installed`.
+  - **Quality Gates & Evidence**:
+    - Added automated unit test `GeneratedMsiPackage_ExitDialogOptionalCheckBox_HasVisualDefectFix` in `PackagingValidationTests.cs` (verifying 10x10 DLUs and transparent companion text control).
+    - Captured before/after screenshots under `docs/installer-ui/before_exitdialog.png` and `docs/installer-ui/after_exitdialog.png`.
+    - Rebuilt release MSI package via `pwsh scripts/package.ps1` cleanly with SHA-256 updated in `installer/winget/` manifests and `dist/updates.json`.
+    - All 462 .NET automated tests passing.
+

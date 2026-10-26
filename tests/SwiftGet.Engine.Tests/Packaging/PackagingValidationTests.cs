@@ -126,4 +126,46 @@ public class PackagingValidationTests
         msiBytes.Should().Equal(expectedOleHeader, "MSI installer must have a valid compound document binary header.");
     }
 
+    [Fact]
+    public void GeneratedMsiPackage_ExitDialogOptionalCheckBox_HasVisualDefectFix()
+    {
+        var root = GetRepositoryRoot();
+        var msiPath = Path.Combine(root, "dist", "SwiftGet-1.0.0-x64.msi");
+        if (!File.Exists(msiPath) || !OperatingSystem.IsWindows())
+        {
+            return;
+        }
+
+        var installerType = Type.GetTypeFromProgID("WindowsInstaller.Installer");
+        if (installerType == null) return;
+
+        dynamic installer = Activator.CreateInstance(installerType)!;
+        dynamic db = installer.OpenDatabase(msiPath, 0);
+
+        try
+        {
+            dynamic view1 = db.OpenView("SELECT Width, Height FROM Control WHERE Dialog_ = 'ExitDialog' AND Control = 'OptionalCheckBox'");
+            view1.Execute();
+            dynamic rec1 = view1.Fetch();
+            ((object)rec1).Should().NotBeNull();
+            int width = rec1.IntegerData(1);
+            int height = rec1.IntegerData(2);
+            width.Should().Be(10, "OptionalCheckBox must be 10 DLUs wide to eliminate grey button-face padding.");
+            height.Should().Be(10, "OptionalCheckBox must be 10 DLUs high.");
+            view1.Close();
+
+            dynamic view2 = db.OpenView("SELECT Attributes, Text FROM Control WHERE Dialog_ = 'ExitDialog' AND Control = 'OptionalCheckBoxText'");
+            view2.Execute();
+            dynamic rec2 = view2.Fetch();
+            ((object)rec2).Should().NotBeNull("ExitDialog must have OptionalCheckBoxText transparent companion control.");
+            int attributes = rec2.IntegerData(1);
+            (attributes & 0x10000).Should().Be(0x10000, "OptionalCheckBoxText must have msidbControlAttributesTransparent set.");
+            view2.Close();
+        }
+        finally
+        {
+            System.Runtime.InteropServices.Marshal.ReleaseComObject(db);
+            System.Runtime.InteropServices.Marshal.ReleaseComObject(installer);
+        }
+    }
 }
