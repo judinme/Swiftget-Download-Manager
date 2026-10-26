@@ -1,0 +1,110 @@
+<ContentDialog
+    x:Class="SwiftGet.App.Views.DownloadFileInfoDialog"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:vm="using:SwiftGet.App.ViewModels"
+    Title="Download File Info"
+    PrimaryButtonText="Start Download"
+    SecondaryButtonText="Download Later"
+    CloseButtonText="Cancel"
+    DefaultButton="Primary"
+    Width="640">
+
+    <Grid RowSpacing="12" Margin="0,6,0,0">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+        </Grid.RowDefinitions>
+
+        <!-- Row 0: URL (Full width) -->
+        <Grid Grid.Row="0">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="80" />
+                <ColumnDefinition Width="*" />
+            </Grid.ColumnDefinitions>
+            <TextBlock Grid.Column="0" Text="URL" VerticalAlignment="Center" FontWeight="SemiBold"
+                       Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+            <TextBox Grid.Column="1" Text="{x:Bind ViewModel.Url, Mode=TwoWay}"
+                     PlaceholderText="https://..." VerticalAlignment="Center"
+                     AutomationProperties.Name="Download URL" />
+        </Grid>
+
+        <!-- Row 1: Category with Add Button and File Size Badge -->
+        <Grid Grid.Row="1">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="80" />
+                <ColumnDefinition Width="*" />
+                <ColumnDefinition Width="Auto" />
+                <ColumnDefinition Width="Auto" />
+            </Grid.ColumnDefinitions>
+            <TextBlock Grid.Column="0" Text="Category" VerticalAlignment="Center" FontWeight="SemiBold"
+                       Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+            <ComboBox Grid.Column="1" HorizontalAlignment="Stretch"
+                      ItemsSource="{x:Bind ViewModel.Categories}"
+                      SelectedItem="{x:Bind ViewModel.SelectedCategory, Mode=TwoWay}"
+                      AutomationProperties.Name="Download Category" />
+            <Button Grid.Column="2" Content="+" Margin="8,0,0,0" Width="36" FontWeight="Bold"
+                    AutomationProperties.Name="Add Category" />
+            <Border Grid.Column="3" Margin="12,0,0,0" Padding="8,4" CornerRadius="4"
+                    Background="{ThemeResource LayerFillColorDefaultBrush}"
+                    BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                    BorderThickness="1" VerticalAlignment="Center">
+                <StackPanel Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
+                    <FontIcon Glyph="&#xE8B9;" FontSize="14" Foreground="{ThemeResource AccentTextFillColorPrimaryBrush}" />
+                    <TextBlock Text="{x:Bind ViewModel.FormattedSize, Mode=OneWay}"
+                               FontSize="12" FontWeight="SemiBold" VerticalAlignment="Center" />
+                </StackPanel>
+            </Border>
+        </Grid>
+
+        <!-- Row 2: Save As (Consistent right edge flush with URL and Description) -->
+        <Grid Grid.Row="2">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="80" />
+                <ColumnDefinition Width="*" />
+                <ColumnDefinition Width="Auto" />
+            </Grid.ColumnDefinitions>
+            <TextBlock Grid.Column="0" Text="Save As" VerticalAlignment="Center" FontWeight="SemiBold"
+                       Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+            <TextBox Grid.Column="1" Text="{x:Bind ViewModel.FullSavePath, Mode=OneWay}"
+                     IsReadOnly="True"
+                     VerticalAlignment="Center"
+                     ToolTipService.ToolTip="{x:Bind ViewModel.FullSavePath, Mode=OneWay}"
+                     AutomationProperties.Name="Full Save Path" />
+            <Button Grid.Column="2" Content="..." Margin="8,0,0,0" Width="36" Click="BrowseFolder_Click"
+                    AutomationProperties.Name="Browse Save Folder" />
+        </Grid>
+
+        <!-- Row 3: Framed Box for Remember Path (Full width, clear description) -->
+        <Border Grid.Row="3" Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+                BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                BorderThickness="1" CornerRadius="6" Padding="12,10">
+            <StackPanel Spacing="6">
+                <CheckBox Content="Remember this path for the selected category"
+                          IsChecked="{x:Bind ViewModel.RememberCategoryPath, Mode=TwoWay}"
+                          FontSize="12"
+                          AutomationProperties.Name="Remember path for category" />
+                <TextBox Text="{x:Bind ViewModel.CategoryPath, Mode=OneWay}"
+                         IsReadOnly="True" FontSize="12"
+                         ToolTipService.ToolTip="{x:Bind ViewModel.CategoryPath, Mode=OneWay}"
+                         AutomationProperties.Name="Remembered Category Path" />
+            </StackPanel>
+        </Border>
+
+        <!-- Row 4: Description (Full width flush with other rows) -->
+        <Grid Grid.Row="4">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="80" />
+                <ColumnDefinition Width="*" />
+            </Grid.ColumnDefinitions>
+            <TextBlock Grid.Column="0" Text="Description" VerticalAlignment="Center" FontWeight="SemiBold"
+                       Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+            <TextBox Grid.Column="1" Text="{x:Bind ViewModel.Description, Mode=TwoWay}"
+                     VerticalAlignment="Center"
+                     AutomationProperties.Name="Download Description" />
+        </Grid>
+    </Grid>
+</ContentDialog>

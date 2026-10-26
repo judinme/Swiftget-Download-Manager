@@ -1,0 +1,14 @@
+# graft/trail local graph cache — regenerable, not committed (run `trail build`).
+/graft/
+/.trail/cache/
+[Bb]in/
+[Oo]bj/
+dist/
+qa-output/
+*.user
+*.suo
+.vs/
+err.txt
+out.txt
+
+

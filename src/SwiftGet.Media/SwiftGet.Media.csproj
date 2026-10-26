@@ -1,0 +1,5 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <ItemGroup>
+    <ProjectReference Include="..\SwiftGet.Core\SwiftGet.Core.csproj" />
+  </ItemGroup>
+</Project>

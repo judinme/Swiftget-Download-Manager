@@ -1,0 +1,143 @@
+<ContentDialog
+    x:Class="SwiftGet.App.Views.AddTorrentDialog"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:vm="using:SwiftGet.App.ViewModels"
+    Title="Add BitTorrent Download"
+    PrimaryButtonText="Download Now"
+    SecondaryButtonText="Download Later"
+    CloseButtonText="Cancel"
+    DefaultButton="Primary"
+    Width="680">
+
+    <Grid RowSpacing="10" Margin="0,8,0,0">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+        </Grid.RowDefinitions>
+
+        <!-- Source / Magnet URI or Torrent File -->
+        <TextBox
+            Grid.Row="0"
+            Header="Torrent Source (Magnet Link or .torrent File):"
+            PlaceholderText="magnet:?xt=urn:btih:... or C:\Path\file.torrent"
+            Text="{x:Bind ViewModel.Source, Mode=TwoWay}" />
+
+        <!-- Name & Hash -->
+        <Grid Grid.Row="1" ColumnSpacing="12">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="2*" />
+                <ColumnDefinition Width="*" />
+            </Grid.ColumnDefinitions>
+            <TextBox
+                Grid.Column="0"
+                Header="Torrent Name:"
+                Text="{x:Bind ViewModel.TorrentName, Mode=TwoWay}" />
+            <TextBox
+                Grid.Column="1"
+                Header="Size:"
+                IsReadOnly="True"
+                Text="{x:Bind ViewModel.FormattedTotalSize, Mode=OneWay}" />
+        </Grid>
+
+        <!-- Save To & Browse -->
+        <Grid Grid.Row="2">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*" />
+                <ColumnDefinition Width="Auto" />
+            </Grid.ColumnDefinitions>
+            <TextBox
+                Grid.Column="0"
+                Header="Save To Folder:"
+                Text="{x:Bind ViewModel.SaveDirectory, Mode=TwoWay}" />
+            <Button
+                Grid.Column="1"
+                Margin="8,26,0,0"
+                Content="Browse..."
+                Click="BrowseFolder_Click"
+                VerticalAlignment="Center" />
+        </Grid>
+
+        <!-- Category & Queue -->
+        <Grid Grid.Row="3" ColumnSpacing="12">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*" />
+                <ColumnDefinition Width="*" />
+            </Grid.ColumnDefinitions>
+            <ComboBox
+                Grid.Column="0"
+                Header="Category:"
+                HorizontalAlignment="Stretch"
+                ItemsSource="{x:Bind ViewModel.Categories}"
+                SelectedItem="{x:Bind ViewModel.SelectedCategory, Mode=TwoWay}" />
+            <ComboBox
+                Grid.Column="1"
+                Header="Queue:"
+                HorizontalAlignment="Stretch"
+                ItemsSource="{x:Bind ViewModel.Queues}"
+                SelectedItem="{x:Bind ViewModel.QueueName, Mode=TwoWay}" />
+        </Grid>
+
+        <!-- Files List & Selection -->
+        <Grid Grid.Row="4" RowSpacing="6">
+            <Grid.RowDefinitions>
+                <RowDefinition Height="Auto" />
+                <RowDefinition Height="140" />
+            </Grid.RowDefinitions>
+            <Grid Grid.Row="0">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="Auto" />
+                </Grid.ColumnDefinitions>
+                <TextBlock Text="Files in Torrent:" FontWeight="SemiBold" VerticalAlignment="Center" />
+                <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="6">
+                    <Button Content="Select All" Command="{x:Bind ViewModel.SelectAllFilesCommand}" FontSize="11" Padding="6,2" />
+                    <Button Content="Deselect All" Command="{x:Bind ViewModel.DeselectAllFilesCommand}" FontSize="11" Padding="6,2" />
+                </StackPanel>
+            </Grid>
+
+            <Border Grid.Row="1" BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}" BorderThickness="1" CornerRadius="4">
+                <ListView ItemsSource="{x:Bind ViewModel.Files}" SelectionMode="None">
+                    <ListView.ItemTemplate>
+                        <DataTemplate x:DataType="vm:AddTorrentFileEntryViewModel">
+                            <Grid ColumnSpacing="8" Padding="4,2">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="Auto" />
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="Auto" />
+                                </Grid.ColumnDefinitions>
+                                <CheckBox Grid.Column="0" IsChecked="{x:Bind IsSelected, Mode=TwoWay}" VerticalAlignment="Center" />
+                                <TextBlock Grid.Column="1" Text="{x:Bind RelativePath}" TextTrimming="CharacterEllipsis" VerticalAlignment="Center" />
+                                <TextBlock Grid.Column="2" Text="{x:Bind FormattedSize}" Foreground="{ThemeResource TextFillColorSecondaryBrush}" VerticalAlignment="Center" />
+                            </Grid>
+                        </DataTemplate>
+                    </ListView.ItemTemplate>
+                </ListView>
+            </Border>
+        </Grid>
+
+        <!-- Options: Sequential mode & Start immediately -->
+        <StackPanel Grid.Row="5" Orientation="Horizontal" Spacing="16">
+            <CheckBox Content="Start download immediately" IsChecked="{x:Bind ViewModel.StartImmediately, Mode=TwoWay}" />
+            <CheckBox Content="Sequential mode (streamable)" IsChecked="{x:Bind ViewModel.SequentialMode, Mode=TwoWay}" />
+        </StackPanel>
+
+        <!-- Status & Free Space Bar -->
+        <Grid Grid.Row="6">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*" />
+                <ColumnDefinition Width="Auto" />
+            </Grid.ColumnDefinitions>
+            <StackPanel Grid.Column="0" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+                <ProgressRing Width="16" Height="16" IsActive="{x:Bind ViewModel.IsFetchingMetadata, Mode=OneWay}" />
+                <TextBlock Text="{x:Bind ViewModel.StatusMessage, Mode=OneWay}" FontSize="12" Foreground="{ThemeResource TextFillColorSecondaryBrush}" VerticalAlignment="Center" />
+            </StackPanel>
+            <TextBlock Grid.Column="1" Text="{x:Bind ViewModel.FreeDiskSpace, Mode=OneWay}" FontSize="12" Foreground="{ThemeResource TextFillColorTertiaryBrush}" VerticalAlignment="Center" />
+        </Grid>
+    </Grid>
+</ContentDialog>

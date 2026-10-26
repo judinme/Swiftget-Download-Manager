@@ -1,0 +1,9 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\SwiftGet.Core\SwiftGet.Core.csproj" />
+    <ProjectReference Include="..\SwiftGet.Engine\SwiftGet.Engine.csproj" />
+  </ItemGroup>
+</Project>

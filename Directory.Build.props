@@ -1,0 +1,24 @@
+<Project>
+  <PropertyGroup>
+    <TargetFramework Condition="'$(TargetFramework)' == ''">net8.0</TargetFramework>
+    <UseRidGraph>true</UseRidGraph>
+    <LangVersion>12.0</LangVersion>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <WarningsNotAsErrors>NU1901;NU1902;NU1903;NU1904</WarningsNotAsErrors>
+    <NoWarn>$(NoWarn);CA1848;CA1711;CS8632</NoWarn>
+    <Deterministic>true</Deterministic>
+    <EnforceCodeStyleInBuild>true</EnforceCodeStyleInBuild>
+    <AnalysisLevel>latest-recommended</AnalysisLevel>
+    <Company>SwiftGet</Company>
+    <Product>SwiftGet Download Manager</Product>
+    <Copyright>Copyright © 2026 SwiftGet Contributors</Copyright>
+    <Version>1.0.0</Version>
+  </PropertyGroup>
+
+  <!-- Relax rule CA1707 (underscores in test names), CA1822 (benchmark instance members), and CA1001 (xUnit IAsyncLifetime tests) for test and benchmark projects -->
+  <PropertyGroup Condition="$(MSBuildProjectName.EndsWith('Tests')) Or $(MSBuildProjectName.EndsWith('Benchmarks'))">
+    <NoWarn>$(NoWarn);CA1707;CA1822;CA1001</NoWarn>
+  </PropertyGroup>
+</Project>

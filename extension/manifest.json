@@ -1,0 +1,49 @@
+{
+  "manifest_version": 3,
+  "name": "SwiftGet Download Manager Integration",
+  "version": "1.0.0",
+  "description": "High-performance download accelerator integration with full IDM-parity capture, session handoff, and Alt-key bypass.",
+  "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEApvCz3fGmQVFyqx0wPJmNg/GzcoPIC1JbU7Ju3tyhPMgLl1fqflCh1jcnMIIVKXlBrK1xZUlPTi+Lu9bJKHDuUUApRcpvbO4AOHnHSIODlOWkd58DtRyT4vLWMIN4P41UymdEm+YSg3iAKt8NrywOoHGKhqFE5AnoT6kXjgfybRBZ3WHia6AV8lPbNlS9n7BsmfmXWew7UJFP96U4EdfYn3kQC7pZ/c/MMyQ3PZnGTN4mN73mWVj0RfSQ9KxN3dyG4t1E7npxhlTPnAAPOaGa3VdlIku5lCrlEfDrgl0p6FuKjmDnIGhi5Z3qblDGmWxEtv6uUkGwJorPnGbdmTKiuwIDAQAB",
+  "permissions": [
+    "downloads",
+    "cookies",
+    "contextMenus",
+    "storage",
+    "nativeMessaging"
+  ],
+  "host_permissions": [
+    "<all_urls>"
+  ],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "content_scripts": [
+    {
+      "matches": ["<all_urls>"],
+      "js": ["content.js"],
+      "css": ["sniffer.css"],
+      "run_at": "document_start",
+      "all_frames": true
+    }
+  ],
+  "icons": {
+    "16": "icons/icon16.png",
+    "32": "icons/icon32.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  },
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "SwiftGet Download Manager",
+    "default_icon": {
+      "16": "icons/icon16.png",
+      "32": "icons/icon32.png",
+      "48": "icons/icon48.png",
+      "128": "icons/icon128.png"
+    }
+  },
+  "options_ui": {
+    "page": "options.html",
+    "open_in_tab": true
+  }
+}

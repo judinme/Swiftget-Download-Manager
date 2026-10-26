@@ -1,0 +1,201 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>SwiftGet Download Manager</title>
+  <style>
+    :root {
+      --bg-color: #1e1e1e;
+      --card-bg: #2d2d2d;
+      --text-color: #f3f3f3;
+      --secondary-text: #aaaaaa;
+      --accent-color: #0078d4;
+      --accent-hover: #106ebe;
+      --success-color: #107c41;
+      --danger-color: #d83b01;
+      --border-color: #444444;
+    }
+    body {
+      width: 280px;
+      margin: 0;
+      padding: 16px;
+      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+      background-color: var(--bg-color);
+      color: var(--text-color);
+      box-sizing: border-box;
+      user-select: none;
+    }
+    .header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 12px;
+      border-bottom: 1px solid var(--border-color);
+      padding-bottom: 8px;
+    }
+    .header h1 {
+      font-size: 15px;
+      font-weight: 600;
+      margin: 0;
+    }
+    .status-badge {
+      display: flex;
+      align-items: center;
+      font-size: 11px;
+      padding: 3px 8px;
+      border-radius: 12px;
+      background-color: var(--card-bg);
+      border: 1px solid var(--border-color);
+    }
+    .status-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      margin-right: 6px;
+      background-color: var(--danger-color);
+    }
+    .status-dot.connected {
+      background-color: var(--success-color);
+    }
+    .setting-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin: 12px 0;
+    }
+    .setting-label {
+      font-size: 13px;
+    }
+    .switch {
+      position: relative;
+      display: inline-block;
+      width: 38px;
+      height: 20px;
+    }
+    .switch input {
+      opacity: 0;
+      width: 0;
+      height: 0;
+    }
+    .slider {
+      position: absolute;
+      cursor: pointer;
+      top: 0; left: 0; right: 0; bottom: 0;
+      background-color: #555555;
+      transition: .2s;
+      border-radius: 20px;
+    }
+    .slider:before {
+      position: absolute;
+      content: "";
+      height: 14px;
+      width: 14px;
+      left: 3px;
+      bottom: 3px;
+      background-color: white;
+      transition: .2s;
+      border-radius: 50%;
+    }
+    input:checked + .slider {
+      background-color: var(--accent-color);
+    }
+    input:checked + .slider:before {
+      transform: translateX(18px);
+    }
+    .button-group {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      margin-top: 16px;
+    }
+    button {
+      background-color: var(--card-bg);
+      border: 1px solid var(--border-color);
+      color: var(--text-color);
+      padding: 8px 12px;
+      font-size: 12px;
+      border-radius: 4px;
+      cursor: pointer;
+      transition: background-color .15s;
+    }
+    button:hover {
+      background-color: #383838;
+    }
+    button.primary {
+      background-color: var(--accent-color);
+      border-color: var(--accent-color);
+    }
+    button.primary:hover {
+      background-color: var(--accent-hover);
+    }
+    .footer {
+      font-size: 10px;
+      color: var(--secondary-text);
+      text-align: center;
+      margin-top: 14px;
+    }
+  </style>
+</head>
+<body>
+  <div class="header">
+    <div style="display: flex; align-items: center; gap: 8px;">
+      <img src="icons/icon32.png" width="20" height="20" alt="SwiftGet Icon" style="border-radius: 4px;" />
+      <h1>SwiftGet</h1>
+    </div>
+    <div class="status-badge">
+      <span id="status-dot" class="status-dot"></span>
+      <span id="status-text">Checking...</span>
+    </div>
+  </div>
+
+  <div class="setting-row">
+    <span class="setting-label">Intercept Downloads</span>
+    <label class="switch">
+      <input type="checkbox" id="intercept-toggle" checked>
+      <span class="slider"></span>
+    </label>
+  </div>
+
+  <div class="setting-row">
+    <span class="setting-label">Capture BitTorrent</span>
+    <label class="switch">
+      <input type="checkbox" id="torrents-toggle" checked>
+      <span class="slider"></span>
+    </label>
+  </div>
+
+  <div class="setting-row">
+    <span class="setting-label">Force Intercept (Insert)</span>
+    <label class="switch">
+      <input type="checkbox" id="insert-toggle" checked>
+      <span class="slider"></span>
+    </label>
+  </div>
+
+  <div class="setting-row">
+    <span class="setting-label">Alt-Key Bypass</span>
+    <label class="switch">
+      <input type="checkbox" id="alt-toggle" checked>
+      <span class="slider"></span>
+    </label>
+  </div>
+
+  <div class="setting-row">
+    <span class="setting-label">Video/Audio Sniffer</span>
+    <label class="switch">
+      <input type="checkbox" id="sniffer-toggle" checked>
+      <span class="slider"></span>
+    </label>
+  </div>
+
+  <div class="button-group">
+    <button id="options-btn">Settings &amp; File Types</button>
+  </div>
+
+  <div class="footer">
+    Hold <b>Insert</b> to force capture • <b>Alt</b> to bypass
+  </div>
+
+  <script src="popup.js"></script>
+</body>
+</html>

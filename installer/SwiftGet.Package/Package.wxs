@@ -1,0 +1,218 @@
+<?ifndef Version?>
+<?define Version = "1.0.0" ?>
+<?endif?>
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs"
+     xmlns:ui="http://wixtoolset.org/schemas/v4/wxs/ui">
+  <Package Name="SwiftGet Download Manager"
+           Manufacturer="SwiftGet Contributors"
+           Version="$(var.Version)"
+           UpgradeCode="4D3B03D2-6AC6-4999-9233-C613A5C98DF7"
+           Scope="perMachine">
+    <MajorUpgrade AllowSameVersionUpgrades="no" DowngradeErrorMessage="A newer or equal version of [ProductName] is already installed." />
+    <MediaTemplate EmbedCab="yes" />
+
+    <Icon Id="AppIcon" SourceFile="$(var.AssetsDir)\app.ico" />
+    <Property Id="ARPPRODUCTICON" Value="AppIcon" />
+    <Property Id="ARPHELPLINK" Value="https://github.com/swiftget/swiftget" />
+    <Property Id="ARPURLINFOABOUT" Value="https://github.com/swiftget/swiftget" />
+
+    <StandardDirectory Id="ProgramFiles64Folder">
+      <Directory Id="INSTALLFOLDER" Name="SwiftGet" />
+    </StandardDirectory>
+
+    <StandardDirectory Id="ProgramMenuFolder">
+      <Directory Id="ApplicationProgramsFolder" Name="SwiftGet" />
+    </StandardDirectory>
+
+    <StandardDirectory Id="DesktopFolder" />
+
+    <!-- Staged Files: Entire self-contained SwiftGet application and runtime -->
+    <ComponentGroup Id="ProductFiles" Directory="INSTALLFOLDER">
+      <Files Include="$(var.StagingDir)\**" />
+    </ComponentGroup>
+
+    <!-- Shortcuts & Configuration -->
+    <ComponentGroup Id="ProductShortcuts" Directory="INSTALLFOLDER">
+      <Component Id="AppShortcuts" Guid="12345678-ABCD-4321-FEDC-0123456789AB">
+        <RegistryValue Root="HKCU" Key="Software\SwiftGet" Name="Installed" Type="integer" Value="1" KeyPath="yes" />
+        <Shortcut Id="StartMenuShortcut"
+                  Directory="ApplicationProgramsFolder"
+                  Name="SwiftGet Download Manager"
+                  Description="High-performance IDM-class download accelerator"
+                  Target="[INSTALLFOLDER]SwiftGet.App.exe"
+                  WorkingDirectory="INSTALLFOLDER"
+                  Icon="AppIcon" />
+        <Shortcut Id="DesktopShortcut"
+                  Directory="DesktopFolder"
+                  Name="SwiftGet Download Manager"
+                  Description="High-performance IDM-class download accelerator"
+                  Target="[INSTALLFOLDER]SwiftGet.App.exe"
+                  WorkingDirectory="INSTALLFOLDER"
+                  Icon="AppIcon" />
+        <RemoveFolder Id="CleanUpProgramMenu" Directory="ApplicationProgramsFolder" On="uninstall" />
+      </Component>
+
+      <!-- Native Messaging Registry Keys -->
+      <Component Id="NativeHostComponent" Guid="A1B2C3D4-E5F6-4A5B-8C9D-0E1F2A3B4C5D">
+        <RegistryValue Root="HKCU" Key="Software\SwiftGet" Name="NativeHostRegistered" Type="integer" Value="1" KeyPath="yes" />
+        <!-- Chrome & Chromium Native Messaging Registry -->
+        <RegistryKey Root="HKCU" Key="Software\Google\Chrome\NativeMessagingHosts\com.swiftget.downloader">
+          <RegistryValue Type="string" Value="[INSTALLFOLDER]com.swiftget.downloader.chrome.json" />
+        </RegistryKey>
+        <RegistryKey Root="HKCU" Key="Software\Google\Chrome\NativeMessagingHosts\com.swiftget.native">
+          <RegistryValue Type="string" Value="[INSTALLFOLDER]com.swiftget.native.json" />
+        </RegistryKey>
+
+        <!-- Microsoft Edge Native Messaging Registry -->
+        <RegistryKey Root="HKCU" Key="Software\Microsoft\Edge\NativeMessagingHosts\com.swiftget.downloader">
+          <RegistryValue Type="string" Value="[INSTALLFOLDER]com.swiftget.downloader.chrome.json" />
+        </RegistryKey>
+        <RegistryKey Root="HKCU" Key="Software\Microsoft\Edge\NativeMessagingHosts\com.swiftget.native">
+          <RegistryValue Type="string" Value="[INSTALLFOLDER]com.swiftget.native.json" />
+        </RegistryKey>
+
+        <!-- Brave Browser Native Messaging Registry -->
+        <RegistryKey Root="HKCU" Key="Software\BraveSoftware\Brave-Browser\NativeMessagingHosts\com.swiftget.downloader">
+          <RegistryValue Type="string" Value="[INSTALLFOLDER]com.swiftget.downloader.chrome.json" />
+        </RegistryKey>
+        <RegistryKey Root="HKCU" Key="Software\BraveSoftware\Brave-Browser\NativeMessagingHosts\com.swiftget.native">
+          <RegistryValue Type="string" Value="[INSTALLFOLDER]com.swiftget.native.json" />
+        </RegistryKey>
+
+        <!-- Mozilla Firefox Native Messaging Registry -->
+        <RegistryKey Root="HKCU" Key="Software\Mozilla\NativeMessagingHosts\com.swiftget.downloader">
+          <RegistryValue Type="string" Value="[INSTALLFOLDER]com.swiftget.downloader.firefox.json" />
+        </RegistryKey>
+        <RegistryKey Root="HKCU" Key="Software\Mozilla\NativeMessagingHosts\com.swiftget.native">
+          <RegistryValue Type="string" Value="[INSTALLFOLDER]com.swiftget.native.json" />
+        </RegistryKey>
+      </Component>
+
+      <!-- Browser Extension Auto-Installation (HKLM Machine Scope) -->
+      <Component Id="BrowserExtensionMachineComponent" Guid="C3D4E5F6-A7B8-4C7D-8E1F-2A3B4C5D6E7F">
+        <RegistryValue Root="HKLM" Key="Software\SwiftGet" Name="BrowserExtensionMachineRegistered" Type="integer" Value="1" KeyPath="yes" />
+
+        <!-- Chrome External Extension (Automatic Prompt to Enable on Launch) -->
+        <RegistryKey Root="HKLM" Key="Software\Google\Chrome\Extensions\albogoggaijdbgdldghgfcjakpdbmmfm">
+          <RegistryValue Type="string" Name="update_url" Value="https://clients2.google.com/service/update2/crx" />
+        </RegistryKey>
+        <RegistryKey Root="HKLM" Key="Software\Google\Chrome\Extensions\jidfbhpjcelebmiokljcmmljbfgiiolh">
+          <RegistryValue Type="string" Name="update_url" Value="https://clients2.google.com/service/update2/crx" />
+        </RegistryKey>
+        <!-- Chrome Enterprise Force-Install Policy (Silent Auto-Install) -->
+        <RegistryKey Root="HKLM" Key="Software\Policies\Google\Chrome\ExtensionInstallForcelist">
+          <RegistryValue Type="string" Name="SwiftGet" Value="albogoggaijdbgdldghgfcjakpdbmmfm;https://clients2.google.com/service/update2/crx" />
+        </RegistryKey>
+
+        <!-- Edge External Extension (Automatic Prompt to Enable on Launch) -->
+        <RegistryKey Root="HKLM" Key="Software\Microsoft\Edge\Extensions\albogoggaijdbgdldghgfcjakpdbmmfm">
+          <RegistryValue Type="string" Name="update_url" Value="https://edge.microsoft.com/extensionwebstorebase/v1/crx" />
+        </RegistryKey>
+        <RegistryKey Root="HKLM" Key="Software\Microsoft\Edge\Extensions\jidfbhpjcelebmiokljcmmljbfgiiolh">
+          <RegistryValue Type="string" Name="update_url" Value="https://edge.microsoft.com/extensionwebstorebase/v1/crx" />
+        </RegistryKey>
+        <!-- Edge Enterprise Force-Install Policy (Silent Auto-Install) -->
+        <RegistryKey Root="HKLM" Key="Software\Policies\Microsoft\Edge\ExtensionInstallForcelist">
+          <RegistryValue Type="string" Name="SwiftGet" Value="albogoggaijdbgdldghgfcjakpdbmmfm;https://edge.microsoft.com/extensionwebstorebase/v1/crx" />
+        </RegistryKey>
+
+        <!-- Brave Browser External Extension -->
+        <RegistryKey Root="HKLM" Key="Software\BraveSoftware\Brave-Browser\Extensions\albogoggaijdbgdldghgfcjakpdbmmfm">
+          <RegistryValue Type="string" Name="update_url" Value="https://clients2.google.com/service/update2/crx" />
+        </RegistryKey>
+        <RegistryKey Root="HKLM" Key="Software\Policies\BraveSoftware\Brave\ExtensionInstallForcelist">
+          <RegistryValue Type="string" Name="SwiftGet" Value="albogoggaijdbgdldghgfcjakpdbmmfm;https://clients2.google.com/service/update2/crx" />
+        </RegistryKey>
+
+        <!-- Firefox External Extension (Direct Extension Directory Auto-Load) -->
+        <RegistryKey Root="HKLM" Key="Software\Mozilla\Firefox\Extensions">
+          <RegistryValue Type="string" Name="swiftget@swiftget.net" Value="[INSTALLFOLDER]extension" />
+        </RegistryKey>
+      </Component>
+
+      <!-- Browser Extension Auto-Installation (HKCU User Scope) -->
+      <Component Id="BrowserExtensionUserComponent" Guid="D4E5F6A7-B8C9-4D8E-9F0A-1B2C3D4E5F60">
+        <RegistryValue Root="HKCU" Key="Software\SwiftGet" Name="BrowserExtensionUserRegistered" Type="integer" Value="1" KeyPath="yes" />
+
+        <!-- Chrome External Extension (User Level) -->
+        <RegistryKey Root="HKCU" Key="Software\Google\Chrome\Extensions\albogoggaijdbgdldghgfcjakpdbmmfm">
+          <RegistryValue Type="string" Name="update_url" Value="https://clients2.google.com/service/update2/crx" />
+        </RegistryKey>
+        <RegistryKey Root="HKCU" Key="Software\Google\Chrome\Extensions\jidfbhpjcelebmiokljcmmljbfgiiolh">
+          <RegistryValue Type="string" Name="update_url" Value="https://clients2.google.com/service/update2/crx" />
+        </RegistryKey>
+        <RegistryKey Root="HKCU" Key="Software\Policies\Google\Chrome\ExtensionInstallForcelist">
+          <RegistryValue Type="string" Name="SwiftGet" Value="albogoggaijdbgdldghgfcjakpdbmmfm;https://clients2.google.com/service/update2/crx" />
+        </RegistryKey>
+
+        <!-- Edge External Extension (User Level) -->
+        <RegistryKey Root="HKCU" Key="Software\Microsoft\Edge\Extensions\albogoggaijdbgdldghgfcjakpdbmmfm">
+          <RegistryValue Type="string" Name="update_url" Value="https://edge.microsoft.com/extensionwebstorebase/v1/crx" />
+        </RegistryKey>
+        <RegistryKey Root="HKCU" Key="Software\Microsoft\Edge\Extensions\jidfbhpjcelebmiokljcmmljbfgiiolh">
+          <RegistryValue Type="string" Name="update_url" Value="https://edge.microsoft.com/extensionwebstorebase/v1/crx" />
+        </RegistryKey>
+        <RegistryKey Root="HKCU" Key="Software\Policies\Microsoft\Edge\ExtensionInstallForcelist">
+          <RegistryValue Type="string" Name="SwiftGet" Value="albogoggaijdbgdldghgfcjakpdbmmfm;https://edge.microsoft.com/extensionwebstorebase/v1/crx" />
+        </RegistryKey>
+
+        <!-- Brave Browser External Extension (User Level) -->
+        <RegistryKey Root="HKCU" Key="Software\BraveSoftware\Brave-Browser\Extensions\albogoggaijdbgdldghgfcjakpdbmmfm">
+          <RegistryValue Type="string" Name="update_url" Value="https://clients2.google.com/service/update2/crx" />
+        </RegistryKey>
+        <RegistryKey Root="HKCU" Key="Software\Policies\BraveSoftware\Brave\ExtensionInstallForcelist">
+          <RegistryValue Type="string" Name="SwiftGet" Value="albogoggaijdbgdldghgfcjakpdbmmfm;https://clients2.google.com/service/update2/crx" />
+        </RegistryKey>
+
+        <!-- Firefox External Extension (User Level) -->
+        <RegistryKey Root="HKCU" Key="Software\Mozilla\Firefox\Extensions">
+          <RegistryValue Type="string" Name="swiftget@swiftget.net" Value="[INSTALLFOLDER]extension" />
+        </RegistryKey>
+      </Component>
+
+      <!-- Protocol and File Associations -->
+      <Component Id="FileAssociationsComponent" Guid="F1E2D3C4-B5A6-4789-9876-543210FEDCBA">
+        <!-- .torrent File Association -->
+        <RegistryKey Root="HKCU" Key="Software\Classes\.torrent">
+          <RegistryValue Type="string" Value="SwiftGet.Torrent" KeyPath="yes" />
+        </RegistryKey>
+        <RegistryKey Root="HKCU" Key="Software\Classes\SwiftGet.Torrent">
+          <RegistryValue Type="string" Value="BitTorrent Download" />
+          <RegistryValue Type="string" Key="DefaultIcon" Value="[INSTALLFOLDER]SwiftGet.App.exe,0" />
+        </RegistryKey>
+        <RegistryKey Root="HKCU" Key="Software\Classes\SwiftGet.Torrent\shell\open\command">
+          <RegistryValue Type="string" Value="&quot;[INSTALLFOLDER]SwiftGet.App.exe&quot; &quot;%1&quot;" />
+        </RegistryKey>
+
+        <!-- magnet: URL Protocol -->
+        <RegistryKey Root="HKCU" Key="Software\Classes\magnet">
+          <RegistryValue Type="string" Value="URL:Magnet Protocol" />
+          <RegistryValue Type="string" Name="URL Protocol" Value="" />
+          <RegistryValue Type="string" Key="DefaultIcon" Value="[INSTALLFOLDER]SwiftGet.App.exe,0" />
+        </RegistryKey>
+        <RegistryKey Root="HKCU" Key="Software\Classes\magnet\shell\open\command">
+          <RegistryValue Type="string" Value="&quot;[INSTALLFOLDER]SwiftGet.App.exe&quot; &quot;%1&quot;" />
+        </RegistryKey>
+      </Component>
+    </ComponentGroup>
+
+    <Feature Id="MainFeature" Title="SwiftGet Download Manager" Level="1">
+      <ComponentGroupRef Id="ProductFiles" />
+      <ComponentGroupRef Id="ProductShortcuts" />
+    </Feature>
+
+    <!-- User Interface Configuration -->
+    <ui:WixUI Id="WixUI_InstallDir" InstallDirectory="INSTALLFOLDER" />
+    <WixVariable Id="WixUILicenseRtf" Value="$(var.AssetsDir)\License.rtf" />
+    <WixVariable Id="WixUIDialogBmp" Value="$(var.AssetsDir)\dialog.bmp" />
+    <WixVariable Id="WixUIBannerBmp" Value="$(var.AssetsDir)\banner.bmp" />
+
+    <!-- Launch App Option on Finish Dialog -->
+    <Property Id="WIXUI_EXITDIALOGOPTIONALCHECKBOXTEXT" Value="Launch SwiftGet Download Manager" />
+    <Property Id="WIXUI_EXITDIALOGOPTIONALCHECKBOX" Value="1" />
+    <CustomAction Id="LaunchApp" Directory="INSTALLFOLDER" ExeCommand="[INSTALLFOLDER]SwiftGet.App.exe" Execute="immediate" Return="asyncNoWait" />
+    <UI>
+      <Publish Dialog="ExitDialog" Control="Finish" Event="DoAction" Value="LaunchApp" Condition="WIXUI_EXITDIALOGOPTIONALCHECKBOX = 1 and NOT Installed" />
+    </UI>
+  </Package>
+</Wix>

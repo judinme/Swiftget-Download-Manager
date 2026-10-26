@@ -1,0 +1,199 @@
+<ContentDialog
+    x:Class="SwiftGet.App.Views.GrabberWizardDialog"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:vm="using:SwiftGet.App.ViewModels"
+    Title="SwiftGet Site Grabber Wizard"
+    CloseButtonText="Cancel"
+    Width="720">
+
+    <Grid RowSpacing="16" MinHeight="420" Width="680">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+            <RowDefinition Height="Auto" />
+        </Grid.RowDefinitions>
+
+        <!-- Wizard Header -->
+        <Border Grid.Row="0" Background="{ThemeResource LayerFillColorDefaultBrush}"
+                Padding="16,12" CornerRadius="8">
+            <StackPanel Spacing="4">
+                <TextBlock Text="{x:Bind ViewModel.StepTitle, Mode=OneWay}"
+                           FontSize="16" FontWeight="SemiBold"
+                           Foreground="{ThemeResource AccentTextFillColorPrimaryBrush}" />
+                <TextBlock Text="Explore websites recursively and download media files, documents, or archives."
+                           FontSize="12" Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+            </StackPanel>
+        </Border>
+
+        <!-- Wizard Body: Step Panels -->
+        <Grid Grid.Row="1">
+            <!-- Step 1: Project & Target URL -->
+            <StackPanel Spacing="16" Visibility="{x:Bind ViewModel.Step1Visibility, Mode=OneWay}">
+                <TextBox Header="Project Name:"
+                         Text="{x:Bind ViewModel.ProjectName, Mode=TwoWay}"
+                         PlaceholderText="My Website Media" />
+                <TextBox Header="Starting Web Address (URL):"
+                         Text="{x:Bind ViewModel.StartUrl, Mode=TwoWay}"
+                         PlaceholderText="https://example.com/gallery" />
+                <ComboBox Header="Domain Exploration Scope:"
+                          SelectedIndex="{x:Bind ViewModel.DomainScopeIndex, Mode=TwoWay}"
+                          HorizontalAlignment="Stretch">
+                    <ComboBoxItem Content="Explore only the specified host (Same Domain)" />
+                    <ComboBoxItem Content="Explore host and all its subdomains" />
+                    <ComboBoxItem Content="Explore any domain (Follow external links)" />
+                </ComboBox>
+            </StackPanel>
+
+            <!-- Step 2: Depth & File Filters -->
+            <StackPanel Spacing="16" Visibility="{x:Bind ViewModel.Step2Visibility, Mode=OneWay}">
+                <NumberBox Header="Exploration Depth (Levels 1 to 5):"
+                           Value="{x:Bind ViewModel.MaxDepth, Mode=TwoWay}"
+                           Minimum="1" Maximum="5"
+                           SpinButtonPlacementMode="Inline"
+                           SmallChange="1" LargeChange="1" />
+                <ComboBox Header="File Filter Preset:"
+                          SelectedIndex="{x:Bind ViewModel.FilePresetIndex, Mode=TwoWay}"
+                          HorizontalAlignment="Stretch">
+                    <ComboBoxItem Content="Pictures (jpg, png, gif, webp, svg, ...)" />
+                    <ComboBoxItem Content="Audio (mp3, wav, flac, aac, ogg, ...)" />
+                    <ComboBoxItem Content="Video (mp4, mkv, avi, webm, flv, ...)" />
+                    <ComboBoxItem Content="Documents (pdf, docx, xlsx, txt, epub, ...)" />
+                    <ComboBoxItem Content="Compressed Archives (zip, rar, 7z, tar, gz, ...)" />
+                    <ComboBoxItem Content="All Discovered Files" />
+                    <ComboBoxItem Content="Custom Extensions" />
+                </ComboBox>
+                <TextBox Header="Custom File Extensions (comma separated):"
+                         Text="{x:Bind ViewModel.CustomExtensions, Mode=TwoWay}"
+                         PlaceholderText=".iso, .bin, .dmg, .apk" />
+            </StackPanel>
+
+            <!-- Step 3: Crawling Website -->
+            <StackPanel Spacing="16" VerticalAlignment="Center" Visibility="{x:Bind ViewModel.Step3Visibility, Mode=OneWay}">
+                <ProgressBar IsIndeterminate="{x:Bind ViewModel.IsCrawling, Mode=OneWay}" Height="6" />
+                <TextBlock Text="{x:Bind ViewModel.CrawlStatus, Mode=OneWay}"
+                           FontSize="14" FontWeight="SemiBold" TextAlignment="Center" />
+                <Grid Margin="0,8,0,0">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="*" />
+                    </Grid.ColumnDefinitions>
+                    <Border Grid.Column="0" Margin="4" Padding="12"
+                            Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+                            BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                            BorderThickness="1" CornerRadius="4">
+                        <StackPanel HorizontalAlignment="Center">
+                            <TextBlock Text="{x:Bind ViewModel.PagesVisited, Mode=OneWay}" FontSize="24" FontWeight="Bold" HorizontalAlignment="Center" />
+                            <TextBlock Text="Pages Crawled" FontSize="12" Foreground="{ThemeResource TextFillColorSecondaryBrush}" HorizontalAlignment="Center" />
+                        </StackPanel>
+                    </Border>
+                    <Border Grid.Column="1" Margin="4" Padding="12"
+                            Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+                            BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                            BorderThickness="1" CornerRadius="4">
+                        <StackPanel HorizontalAlignment="Center">
+                            <TextBlock Text="{x:Bind ViewModel.FilesFound, Mode=OneWay}" FontSize="24" FontWeight="Bold" HorizontalAlignment="Center" />
+                            <TextBlock Text="Files Found" FontSize="12" Foreground="{ThemeResource TextFillColorSecondaryBrush}" HorizontalAlignment="Center" />
+                        </StackPanel>
+                    </Border>
+                </Grid>
+                <TextBlock Text="{x:Bind ViewModel.CurrentCrawlUrl, Mode=OneWay}"
+                           FontSize="11" Foreground="{ThemeResource TextFillColorTertiaryBrush}"
+                           TextTrimming="CharacterEllipsis" TextAlignment="Center" />
+                <Button Content="Stop Search" HorizontalAlignment="Center"
+                        Command="{x:Bind ViewModel.CancelCrawlCommand}"
+                        Visibility="{x:Bind ViewModel.IsCrawling, Mode=OneWay}" />
+            </StackPanel>
+
+            <!-- Step 4: Discovered Files & Destination -->
+            <Grid Visibility="{x:Bind ViewModel.Step4Visibility, Mode=OneWay}">
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="*" />
+                    <RowDefinition Height="Auto" />
+                </Grid.RowDefinitions>
+
+                <!-- Selection Bar -->
+                <Grid Grid.Row="0" Margin="0,0,0,8">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="Auto" />
+                        <ColumnDefinition Width="Auto" />
+                        <ColumnDefinition Width="*" />
+                    </Grid.ColumnDefinitions>
+                    <Button Grid.Column="0" Content="Select All" Margin="0,0,8,0"
+                            Command="{x:Bind ViewModel.SelectAllCommand}" />
+                    <Button Grid.Column="1" Content="Deselect All" Margin="0,0,8,0"
+                            Command="{x:Bind ViewModel.DeselectAllCommand}" />
+                    <TextBlock Grid.Column="2" Text="{x:Bind ViewModel.SelectedCountSummary, Mode=OneWay}"
+                               VerticalAlignment="Center" HorizontalAlignment="Right"
+                               FontSize="12" FontWeight="SemiBold" />
+                </Grid>
+
+                <!-- File List View -->
+                <Border Grid.Row="1" Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+                        BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                        BorderThickness="1" CornerRadius="4" Height="220">
+                    <ListView ItemsSource="{x:Bind ViewModel.DiscoveredFiles}" SelectionMode="None">
+                        <ListView.ItemTemplate>
+                            <DataTemplate x:DataType="vm:GrabberFileItemViewModel">
+                                <Grid ColumnSpacing="8" Padding="4,2">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="Auto" />
+                                        <ColumnDefinition Width="*" />
+                                        <ColumnDefinition Width="80" />
+                                        <ColumnDefinition Width="60" />
+                                    </Grid.ColumnDefinitions>
+                                    <CheckBox Grid.Column="0" IsChecked="{x:Bind IsSelected, Mode=TwoWay}"
+                                              MinWidth="32" VerticalAlignment="Center" />
+                                    <TextBlock Grid.Column="1" Text="{x:Bind FileName}"
+                                               FontSize="12" VerticalAlignment="Center" TextTrimming="CharacterEllipsis" />
+                                    <TextBlock Grid.Column="2" Text="{x:Bind Extension}"
+                                               FontSize="11" Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                               VerticalAlignment="Center" />
+                                    <TextBlock Grid.Column="3" Text="{x:Bind Depth, Mode=OneWay}"
+                                               FontSize="11" Foreground="{ThemeResource TextFillColorTertiaryBrush}"
+                                               VerticalAlignment="Center" />
+                                </Grid>
+                            </DataTemplate>
+                        </ListView.ItemTemplate>
+                    </ListView>
+                </Border>
+
+                <!-- Destination Directory & Queue -->
+                <Grid Grid.Row="2" ColumnSpacing="12" Margin="0,8,0,0">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="160" />
+                    </Grid.ColumnDefinitions>
+                    <TextBox Grid.Column="0" Header="Save To Directory:"
+                             Text="{x:Bind ViewModel.SaveDirectory, Mode=TwoWay}" />
+                    <ComboBox Grid.Column="1" Header="Queue:" HorizontalAlignment="Stretch"
+                              SelectedItem="{x:Bind ViewModel.QueueName, Mode=TwoWay}">
+                        <ComboBoxItem Content="default" IsSelected="True" />
+                        <ComboBoxItem Content="sync" />
+                    </ComboBox>
+                </Grid>
+            </Grid>
+        </Grid>
+
+        <!-- Wizard Navigation Footer -->
+        <Grid Grid.Row="2">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="Auto" />
+                <ColumnDefinition Width="*" />
+                <ColumnDefinition Width="Auto" />
+                <ColumnDefinition Width="Auto" />
+            </Grid.ColumnDefinitions>
+
+            <Button Grid.Column="0" Content="&lt; Back"
+                    Command="{x:Bind ViewModel.PreviousStepCommand}"
+                    IsEnabled="{x:Bind ViewModel.CanGoBack, Mode=OneWay}" />
+
+            <Button Grid.Column="2" Content="{x:Bind ViewModel.NextButtonText, Mode=OneWay}"
+                    Style="{ThemeResource AccentButtonStyle}"
+                    Margin="0,0,8,0"
+                    Click="NextOrFinish_Click"
+                    IsEnabled="{x:Bind ViewModel.CanGoNext, Mode=OneWay}" />
+        </Grid>
+    </Grid>
+</ContentDialog>

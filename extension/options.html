@@ -1,0 +1,152 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>SwiftGet Extension Options</title>
+  <style>
+    :root {
+      --bg-color: #1e1e1e;
+      --card-bg: #2d2d2d;
+      --text-color: #f3f3f3;
+      --secondary-text: #aaaaaa;
+      --accent-color: #0078d4;
+      --accent-hover: #106ebe;
+      --border-color: #444444;
+      --success-color: #107c41;
+    }
+    body {
+      max-width: 680px;
+      margin: 32px auto;
+      padding: 0 16px;
+      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+      background-color: var(--bg-color);
+      color: var(--text-color);
+    }
+    h1 {
+      font-size: 20px;
+      font-weight: 600;
+      border-bottom: 1px solid var(--border-color);
+      padding-bottom: 12px;
+      margin-bottom: 24px;
+    }
+    .card {
+      background-color: var(--card-bg);
+      border: 1px solid var(--border-color);
+      border-radius: 8px;
+      padding: 16px;
+      margin-bottom: 16px;
+    }
+    .card-title {
+      font-size: 14px;
+      font-weight: 600;
+      margin-bottom: 6px;
+    }
+    .card-desc {
+      font-size: 12px;
+      color: var(--secondary-text);
+      margin-bottom: 12px;
+    }
+    textarea {
+      width: 100%;
+      box-sizing: border-box;
+      background-color: #1c1c1c;
+      border: 1px solid var(--border-color);
+      color: var(--text-color);
+      padding: 10px;
+      font-family: Consolas, monospace;
+      font-size: 12px;
+      border-radius: 4px;
+      resize: vertical;
+    }
+    .button-bar {
+      display: flex;
+      gap: 12px;
+      margin-top: 24px;
+    }
+    button {
+      padding: 8px 16px;
+      font-size: 13px;
+      border-radius: 4px;
+      cursor: pointer;
+      border: 1px solid var(--border-color);
+      background-color: var(--card-bg);
+      color: var(--text-color);
+    }
+    button.primary {
+      background-color: var(--accent-color);
+      border-color: var(--accent-color);
+    }
+    button.primary:hover {
+      background-color: var(--accent-hover);
+    }
+    #status-msg {
+      margin-left: 12px;
+      font-size: 12px;
+      color: var(--success-color);
+      align-self: center;
+    }
+  </style>
+</head>
+<body>
+  <div style="display: flex; align-items: center; gap: 12px; margin-bottom: 24px; border-bottom: 1px solid var(--border-color); padding-bottom: 12px;">
+    <img src="icons/icon48.png" width="32" height="32" alt="SwiftGet Logo" style="border-radius: 6px;" />
+    <h1 style="border-bottom: none; margin: 0; padding: 0;">SwiftGet Integration Options</h1>
+  </div>
+
+  <div class="card">
+    <div class="card-title">File Types to Intercept</div>
+    <div class="card-desc">SwiftGet will automatically take over downloads for files with these extensions. Separate by commas or spaces:</div>
+    <textarea id="extensions-input" rows="4"></textarea>
+  </div>
+
+  <div class="card">
+    <div class="card-title">BitTorrent & Magnet Interception</div>
+    <div class="card-desc">Automatically detect clicks on magnet: links and .torrent file downloads to launch SwiftGet:</div>
+    <label style="display: flex; align-items: center; gap: 8px; font-size: 13px; cursor: pointer;">
+      <input type="checkbox" id="intercept-torrents-chk" checked>
+      <span>Capture magnet links and .torrent files</span>
+    </label>
+    <div style="font-size: 11px; color: var(--secondary-text); margin-top: 8px;">
+      Tip: Hold the <kbd style="background:#333; padding:2px 4px; border-radius:3px;">Alt</kbd> key when clicking any magnet link to bypass SwiftGet and let your browser or default OS app handle it. Note: Browsers may display a one-time external application permission prompt when the extension is bypassed.
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-title">Keyboard Modifiers (IDM Parity)</div>
+    <div class="card-desc">Configure keyboard shortcuts to override automatic download behavior on the fly:</div>
+    <div style="display: flex; flex-direction: column; gap: 10px;">
+      <label style="display: flex; align-items: center; gap: 8px; font-size: 13px; cursor: pointer;">
+        <input type="checkbox" id="insert-key-chk" checked>
+        <span><b>Force Interception (<kbd style="background:#333; padding:2px 4px; border-radius:3px;">Insert</kbd> key)</b>: Holding Insert forces SwiftGet to intercept any clicked link, even if unlisted.</span>
+      </label>
+      <label style="display: flex; align-items: center; gap: 8px; font-size: 13px; cursor: pointer;">
+        <input type="checkbox" id="alt-key-chk" checked>
+        <span><b>Bypass Interception (<kbd style="background:#333; padding:2px 4px; border-radius:3px;">Alt</kbd> key)</b>: Holding Alt suppresses SwiftGet and forces your browser to handle the download natively.</span>
+      </label>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-title">Streaming Media Sniffer</div>
+    <div class="card-desc">Render floating overlay buttons ("Download this video / audio") above media players:</div>
+    <label style="display: flex; align-items: center; gap: 8px; font-size: 13px; cursor: pointer;">
+      <input type="checkbox" id="sniffer-enabled-chk" checked>
+      <span>Enable floating video and audio download panel</span>
+    </label>
+  </div>
+
+  <div class="card">
+    <div class="card-title">Sites Not to Capture From (Domain Exclusion List / defexclist.txt)</div>
+    <div class="card-desc">Domains where SwiftGet should never intercept downloads (one per line or space-separated):</div>
+    <textarea id="blacklist-input" rows="4"></textarea>
+  </div>
+
+  <div class="button-bar">
+    <button id="save-btn" class="primary">Save Changes</button>
+    <button id="reset-btn">Reset to Defaults</button>
+    <span id="status-msg"></span>
+  </div>
+
+  <script src="options.js"></script>
+</body>
+</html>

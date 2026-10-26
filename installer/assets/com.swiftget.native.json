@@ -1,0 +1,11 @@
+{
+  "name": "com.swiftget.native",
+  "description": "SwiftGet Native Messaging Host for IDM Parity Browser Integration",
+  "path": "SwiftGet.NativeHost.exe",
+  "type": "stdio",
+  "allowed_origins": [
+    "chrome-extension://jidfbhpjcelebmiokljcmmljbfgiiolh/",
+    "chrome-extension://albogoggaijdbgdldghgfcjakpdbmmfm/",
+    "chrome-extension://swiftget-extension-id/"
+  ]
+}

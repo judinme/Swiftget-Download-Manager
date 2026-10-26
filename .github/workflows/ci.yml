@@ -1,0 +1,29 @@
+name: SwiftGet CI Pipeline
+
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+
+jobs:
+  build-and-test:
+    runs-on: windows-latest
+
+    steps:
+    - name: Checkout Repository
+      uses: actions/checkout@v4
+
+    - name: Setup .NET SDK 8.0.x
+      uses: actions/setup-dotnet@v4
+      with:
+        dotnet-version: '8.0.x'
+
+    - name: Verify Code Formatting
+      run: dotnet format SwiftGet.sln --verify-no-changes
+
+    - name: Build Solution (Release)
+      run: dotnet build SwiftGet.sln --configuration Release --verbosity normal
+
+    - name: Run Test Suites
+      run: dotnet test SwiftGet.sln --configuration Release --no-build --logger "console;verbosity=normal"

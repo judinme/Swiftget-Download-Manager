@@ -1,0 +1,214 @@
+<ContentDialog
+    x:Class="SwiftGet.App.Views.SchedulerDialog"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:models="using:SwiftGet.Core.Models"
+    xmlns:vm="using:SwiftGet.App.ViewModels"
+    Title="Scheduler and Download Queues"
+    PrimaryButtonText="Save &amp; Close"
+    SecondaryButtonText="Start Queue Now"
+    CloseButtonText="Cancel"
+    DefaultButton="Primary"
+    Width="680"
+    Height="620">
+
+    <Grid Margin="0,8,0,0">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+            <RowDefinition Height="Auto" />
+        </Grid.RowDefinitions>
+
+        <!-- Queue Selector Bar -->
+        <Grid Grid.Row="0" Margin="0,0,0,12">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="Auto" />
+                <ColumnDefinition Width="*" />
+            </Grid.ColumnDefinitions>
+            <TextBlock Text="Select Queue:" VerticalAlignment="Center" FontWeight="SemiBold" Margin="0,0,12,0" />
+            <ComboBox Grid.Column="1"
+                      HorizontalAlignment="Stretch"
+                      ItemsSource="{x:Bind ViewModel.Queues}"
+                      SelectedItem="{x:Bind ViewModel.SelectedQueue, Mode=TwoWay}">
+                <ComboBox.ItemTemplate>
+                    <DataTemplate x:DataType="models:DownloadQueue">
+                        <TextBlock Text="{x:Bind Name}" />
+                    </DataTemplate>
+                </ComboBox.ItemTemplate>
+            </ComboBox>
+        </Grid>
+
+        <!-- Main Tab Control -->
+        <TabView Grid.Row="1" IsAddTabButtonVisible="False" TabWidthMode="Equal">
+            <!-- TAB 1: Schedule -->
+            <TabViewItem Header="Schedule" IsClosable="False">
+                <ScrollViewer VerticalScrollBarVisibility="Auto" Padding="4,8">
+                    <StackPanel Spacing="12">
+                        <!-- Timing Card -->
+                        <Border Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+                                BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                                BorderThickness="1" CornerRadius="4" Padding="12">
+                            <StackPanel Spacing="8">
+                                <CheckBox Content="Enable automated scheduling for this queue"
+                                          IsChecked="{x:Bind ViewModel.IsScheduleEnabled, Mode=TwoWay}"
+                                          FontWeight="SemiBold" />
+                                
+                                <Grid ColumnSpacing="16" Margin="24,4,0,0">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*" />
+                                        <ColumnDefinition Width="*" />
+                                    </Grid.ColumnDefinitions>
+                                    <StackPanel Grid.Column="0" Spacing="4">
+                                        <TextBlock Text="Start download at:" FontSize="12" Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                                        <TimePicker SelectedTime="{x:Bind ViewModel.StartTime, Mode=TwoWay}" HorizontalAlignment="Stretch" />
+                                    </StackPanel>
+
+                                    <StackPanel Grid.Column="1" Spacing="4">
+                                        <CheckBox Content="Stop download at:" IsChecked="{x:Bind ViewModel.HasStopTime, Mode=TwoWay}" FontSize="12" />
+                                        <TimePicker SelectedTime="{x:Bind ViewModel.StopTime, Mode=TwoWay}"
+                                                    IsEnabled="{x:Bind ViewModel.HasStopTime, Mode=OneWay}"
+                                                    HorizontalAlignment="Stretch" />
+                                    </StackPanel>
+                                </Grid>
+
+                                <CheckBox Content="Periodic download (run daily at specified time)"
+                                          IsChecked="{x:Bind ViewModel.IsPeriodic, Mode=TwoWay}"
+                                          Margin="24,4,0,0" />
+                            </StackPanel>
+                        </Border>
+
+                        <!-- Days of Week Card -->
+                        <Border Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+                                BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                                BorderThickness="1" CornerRadius="4" Padding="12">
+                            <StackPanel Spacing="6">
+                                <TextBlock Text="Active Days:" FontWeight="SemiBold" />
+                                <StackPanel Orientation="Horizontal" Spacing="4">
+                                    <CheckBox Content="Mon" IsChecked="{x:Bind ViewModel.DayMonday, Mode=TwoWay}" />
+                                    <CheckBox Content="Tue" IsChecked="{x:Bind ViewModel.DayTuesday, Mode=TwoWay}" />
+                                    <CheckBox Content="Wed" IsChecked="{x:Bind ViewModel.DayWednesday, Mode=TwoWay}" />
+                                    <CheckBox Content="Thu" IsChecked="{x:Bind ViewModel.DayThursday, Mode=TwoWay}" />
+                                    <CheckBox Content="Fri" IsChecked="{x:Bind ViewModel.DayFriday, Mode=TwoWay}" />
+                                    <CheckBox Content="Sat" IsChecked="{x:Bind ViewModel.DaySaturday, Mode=TwoWay}" />
+                                    <CheckBox Content="Sun" IsChecked="{x:Bind ViewModel.DaySunday, Mode=TwoWay}" />
+                                </StackPanel>
+                            </StackPanel>
+                        </Border>
+
+                        <!-- After Completion Actions Card -->
+                        <Border Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+                                BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                                BorderThickness="1" CornerRadius="4" Padding="12">
+                            <StackPanel Spacing="8">
+                                <TextBlock Text="Actions upon queue completion:" FontWeight="SemiBold" />
+                                <Grid ColumnSpacing="16">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*" />
+                                        <ColumnDefinition Width="*" />
+                                    </Grid.ColumnDefinitions>
+                                    <StackPanel Grid.Column="0" Spacing="4">
+                                        <CheckBox Content="Exit SwiftGet" IsChecked="{x:Bind ViewModel.ExitAppOnCompletion, Mode=TwoWay}" />
+                                        <CheckBox Content="Turn off computer (Shutdown)" IsChecked="{x:Bind ViewModel.ShutdownOnCompletion, Mode=TwoWay}" />
+                                    </StackPanel>
+                                    <StackPanel Grid.Column="1" Spacing="4">
+                                        <CheckBox Content="Put computer to sleep / hibernate" IsChecked="{x:Bind ViewModel.HibernateOnCompletion, Mode=TwoWay}" />
+                                        <CheckBox Content="Force closing of processes" IsChecked="{x:Bind ViewModel.ForceShutdown, Mode=TwoWay}" />
+                                    </StackPanel>
+                                </Grid>
+                            </StackPanel>
+                        </Border>
+                    </StackPanel>
+                </ScrollViewer>
+            </TabViewItem>
+
+            <!-- TAB 2: Files in the Queue -->
+            <TabViewItem Header="Files in the Queue" IsClosable="False">
+                <Grid Padding="4,8">
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="*" />
+                        <RowDefinition Height="Auto" />
+                    </Grid.RowDefinitions>
+
+                    <!-- Queue Concurrency & Rate Limit -->
+                    <Grid Grid.Row="0" Margin="0,0,0,8" ColumnSpacing="16">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="*" />
+                        </Grid.ColumnDefinitions>
+                        <StackPanel Grid.Column="0" Spacing="4">
+                            <TextBlock Text="Max concurrent downloads:" FontSize="12" Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                            <NumberBox Value="{x:Bind ViewModel.MaxConcurrentDownloads, Mode=TwoWay}"
+                                       Minimum="1" Maximum="10" SmallChange="1" SpinButtonPlacementMode="Inline" />
+                        </StackPanel>
+
+                        <StackPanel Grid.Column="1" Spacing="4">
+                            <TextBlock Text="Speed limit (KB/s, 0 = unlimited):" FontSize="12" Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                            <NumberBox Value="{x:Bind ViewModel.SpeedLimitKbps, Mode=TwoWay}"
+                                       Minimum="0" Maximum="1000000" SmallChange="64" SpinButtonPlacementMode="Inline" />
+                        </StackPanel>
+                    </Grid>
+
+                    <!-- Items List -->
+                    <Border Grid.Row="1" Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+                            BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                            BorderThickness="1" CornerRadius="4">
+                        <ListView ItemsSource="{x:Bind ViewModel.QueueItems}"
+                                  SelectedItem="{x:Bind ViewModel.SelectedQueueItem, Mode=TwoWay}"
+                                  SelectionMode="Single">
+                            <ListView.ItemTemplate>
+                                <DataTemplate x:DataType="models:DownloadItem">
+                                    <Grid ColumnSpacing="12" Padding="4">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="Auto" />
+                                            <ColumnDefinition Width="*" />
+                                            <ColumnDefinition Width="Auto" />
+                                            <ColumnDefinition Width="Auto" />
+                                        </Grid.ColumnDefinitions>
+                                        <FontIcon Grid.Column="0" Glyph="&#xE896;" FontSize="14" />
+                                        <TextBlock Grid.Column="1" Text="{x:Bind FileName}" FontWeight="SemiBold" TextTrimming="CharacterEllipsis" />
+                                        <TextBlock Grid.Column="2" Text="{x:Bind Status}" Foreground="{ThemeResource TextFillColorSecondaryBrush}" FontSize="12" />
+                                        <TextBlock Grid.Column="3" Text="{x:Bind Priority}" FontSize="11" Margin="8,0,0,0" />
+                                    </Grid>
+                                </DataTemplate>
+                            </ListView.ItemTemplate>
+                        </ListView>
+                    </Border>
+
+                    <!-- Up / Down Reordering Bar -->
+                    <Grid Grid.Row="2" Margin="0,8,0,0">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+                        <StackPanel Grid.Column="0" Orientation="Horizontal" Spacing="8">
+                            <Button Command="{x:Bind ViewModel.MoveUpCommand}">
+                                <StackPanel Orientation="Horizontal" Spacing="6">
+                                    <FontIcon Glyph="&#xE74A;" FontSize="14" />
+                                    <TextBlock Text="Move Up" />
+                                </StackPanel>
+                            </Button>
+                            <Button Command="{x:Bind ViewModel.MoveDownCommand}">
+                                <StackPanel Orientation="Horizontal" Spacing="6">
+                                    <FontIcon Glyph="&#xE74B;" FontSize="14" />
+                                    <TextBlock Text="Move Down" />
+                                </StackPanel>
+                            </Button>
+                        </StackPanel>
+
+                        <Button Grid.Column="1" Command="{x:Bind ViewModel.StopQueueNowCommand}">
+                            <StackPanel Orientation="Horizontal" Spacing="6">
+                                <FontIcon Glyph="&#xE769;" FontSize="14" />
+                                <TextBlock Text="Stop Queue" />
+                            </StackPanel>
+                        </Button>
+                    </Grid>
+                </Grid>
+            </TabViewItem>
+        </TabView>
+
+        <!-- Status Bar -->
+        <TextBlock Grid.Row="2" Text="{x:Bind ViewModel.StatusMessage, Mode=OneWay}"
+                   FontSize="12" Foreground="{ThemeResource TextFillColorSecondaryBrush}" Margin="4,8,4,0" />
+    </Grid>
+</ContentDialog>

@@ -1,0 +1,179 @@
+# SwiftGet Status Tracking
+
+Last Updated: 2026-10-24
+
+## Core Milestones (M0 - M8)
+- [x] **M0: Project Setup & Repository Infrastructure** - Complete
+- [x] **M1: Core Engine & Multi-Segment Download** - Complete
+- [x] **M2: UI Shell & IDM Visual Parity (WPF)** - Complete
+- [x] **M3: Native Messaging & Browser Integration** - Complete
+- [x] **M4: Media Stream Sniffing & YouTube/HLS/DASH Grabber** - Complete
+- [x] **M5: Scheduler, Batch Queue, DropBox & Categories** - Complete
+- [x] **M6: Site Logins, Proxies, Bandwidth Profiler & Speed Limiter** - Complete
+- [x] **M7: Integrity Verification, Antivirus Hook & Export/Import** - Complete
+- [x] **M8: Crash Recovery, TLS Security, Diagnostics & Virtualized Lists** - Complete
+
+## BitTorrent Extension Milestones (T1 - T5)
+- [x] **T1: Engine Integration** - Complete
+  - `ITorrentEngine` interface abstraction & `MonoTorrentEngine` wrapping MonoTorrent 3.0.2.
+  - Job type `JobKind.Torrent`, extended `DownloadStatus` states (`FetchingMetadata`, `Checking`, `Seeding`), and `TorrentFilePriority`.
+  - SQLite Database Migration v3 (`job_kind`, `info_hash`, `torrents`, `torrent_files`, `torrent_trackers`), preserving 100% of existing download records.
+  - Path traversal sanitization (`TorrentPathSanitizer`) and SSRF tracker safety validation (`TrackerSafetyValidator`).
+  - Local swarm test harness (`LocalSwarmHarness`) with loopback seeder + tracker.
+  - End-to-end integration tests: .torrent download, magnet BEP 9 metadata resolution, kill & fast-resume, selective file priorities, rate limits.
+  - Acceptance: 225/225 tests passing (36/36 torrent-specific tests passing).
+- [x] **T2: Magnet & .Torrent Entry Points** - Complete
+  - Strict magnet URI parser (`MagnetUriParser`) for `xt` (hex & base32 btih, btmh v2 multihash), `dn` (path-sanitized), `tr`, `ws`, `xs`, and `so` (select-only ranges).
+  - Per-user HKCU Windows registry association (`TorrentAssociationManager`) for `magnet` scheme and `.torrent` file type + Default Apps capabilities and settings opener.
+  - Named Pipe single-instance forwarder (`SingleInstanceIpc`) with per-user DACL and ACK protocol.
+  - Interactive "Add Torrent" dialog (`AddTorrentDialog`, `AddTorrentViewModel`) with file selection tree, priorities, sequential toggle, and disk space calculation.
+  - CLI argument handling for magnet URIs and `.torrent` files in cold and warm instance modes.
+  - Acceptance: 252/252 tests passing (63 torrent-specific tests passing).
+- [x] **T3: Extension (MV3) & Native Host Protocol** - Complete
+  - Content script detecting `magnet:` and `.torrent` links with Alt-key bypass and nested iframe support.
+  - Context menu entries for magnet links and .torrent files.
+  - MIME type `application/x-bittorrent` and `application/x-torrent` interception.
+  - Native host protocol extensions: `addMagnet`, `addTorrentFile` (supporting Base64 bytes, local paths, and URLs), versioned `v1.1.0` with `torrentSupported: true`.
+  - Loopback server authenticated torrent API parity on `/api/v1/downloads` and `/api/v1/torrents`.
+  - Extension popup and options toggle for BitTorrent interception.
+  - Acceptance: 260/260 .NET tests passing + 11/11 Node.js extension tests passing.
+- [x] **T4: UI & Settings Integration** - Complete
+  - BitTorrent settings tab in `OptionsDialog.xaml` and `OptionsViewModel.cs` with port selection, randomization (1024-65535), UPnP/NAT-PMP toggle, DHT/PeX/LSD/Encryption controls, connection & bandwidth throttling, seeding rules, and Windows file association management.
+  - Category tree integration: "Torrents" node under "All Downloads" with glyph `\uE896` in `MainViewModel.cs` and `CategoryItemViewModel.cs`, with sub-35ms category switching over 10k items.
+  - Table integration: dual transfer rate formatting (`↓ 2.4 MB/s  ↑ 120 KB/s`), extended statuses (`Fetching metadata...`, `Checking`, `Seeding`), and aggregated transfer rates in status bar.
+  - Context menu actions: "Force Recheck", "Copy Magnet / Info Hash", and "Toggle Sequential Download" in `MainWindow.xaml` and `MainWindow.xaml.cs`.
+  - Interactive multi-tab inspector: `TorrentDetailsDialog.xaml` and `TorrentDetailsViewModel.cs` with 1Hz live polling across General, Files (with live priority changes: `Normal`, `High`, `Low`, `DoNotDownload`), Peers (endpoint, client, speeds, flags, security), Trackers (tier, URL, status, swarm), Piece Map (bitfield completion and visual distribution grid), and Speed Limits.
+  - Comprehensive unit test coverage in `OptionsViewModelTests.cs`, `TorrentDetailsViewModelTests.cs`, and `MainViewModelVirtualizationTests.cs`.
+  - Acceptance: 269/269 .NET tests passing + 11/11 Node.js extension tests passing (**280/280 total tests passing**).
+- [x] **T5: Hardening & Performance Benchmarks** - Complete
+  - Performance benchmarks in `benchmarks/SwiftGet.Benchmarks/`:
+    - `TorrentThroughputBenchmark`: Loopback swarm benchmark transferring 16MB across local peers at **33.8 MB/s (270.7 Mbps)**.
+    - `MagnetParserBenchmark`: Micro-benchmark achieving **4.35 µs/op** on complex multi-tracker magnet URIs with minimal heap allocation.
+    - `Program.cs`: Smoke suite (`--smoke`) and full `BenchmarkSwitcher` CLI support.
+  - Swarm churn and concurrency stress tests in `TorrentSwarmStressTests.cs`:
+    - `ConcurrentTorrents_DownloadSimultaneously_AllSucceed`: Parallel 4-swarm concurrent download to 100% completion with bit-exact SHA-256 verification.
+    - `PeerChurn_RapidConnectDisconnect_CompletesWithoutHanging`: Active loopback transfer resilience against abrupt external peer disconnects and port probes.
+    - `SeederDropout_RecoversAndCompletesOnReconnect`: Mid-transfer seeder abort and replacement seeder reconnect without error state or data loss.
+  - Fault injection and security defense in `TorrentFaultInjectionTests.cs`:
+    - `FailingTrackers_Http500AndTimeout_DoesNotBlockTorrentOrCrashEngine`: Torrent succeeds despite HTTP 500, dead port, and unreachable UDP trackers.
+    - `CorruptedPieceHashFailure_DetectedAndRepaired`: Detects tampered blocks via SHA-1 piece verification and repairs payload back to bit-exact SHA-256 hash.
+    - `MonoTorrentEngine.ForceRecheckAsync`: Hardened to safely stop active managers before `HashCheckAsync` and auto-resume execution.
+    - `MaliciousTorrentPathTraversal_BlockedFromOverwritingSystemFiles`: Verifies `TorrentPathSanitizer` blocks directory traversal attacks (`../../Windows/System32`, `/etc/shadow`).
+  - Memory and lifecycle stability in `TorrentLongRunningStabilityTests.cs`:
+    - `ExtendedSeeding_MemoryRemainsBounded`: Memory delta remains flat (< 35 MB) across repeated sequential leecher transfers.
+    - `EngineLifecycle_RepeatedStartStop_LeavesNoOrphanedResources`: Port released immediately on dispose across repeated engine initialization cycles.
+  - Acceptance: 281/281 .NET tests passing + 11/11 Node.js extension tests passing (**292/292 total tests passing**), `pwsh scripts/run-all.ps1 -IncludeBenchmarks` all gates passed in 60.60s.
+ 
+## Packaging & Release Milestone (M9 Updated)
+- [x] **M9: Packaging, Installer (WiX MSI), Auto-Updater, Winget & Store Packages** - Complete
+  - **Custom Application & Extension Icon Integration**:
+    - Processed 1024x1024 master icon into multi-resolution `app.ico` (16 to 256px), WinUI 3 logos (`Square44x44Logo.png`, `Square50x50Logo.png`, `Square150x150Logo.png`, `app.png`), installer icon, and browser extension icon sets (16, 32, 48, 128px).
+    - Configured `<ApplicationIcon>` in `SwiftGet.App.csproj` and window titlebar icon in `MainWindow.xaml.cs`.
+  - **WiX v4/v5 MSI Package (`installer/SwiftGet.Package/`)**:
+    - Dual-mode installation (`Scope="perUserOrMachine"`).
+    - Packaged self-contained x64 binaries, `SwiftGet.NativeHost.exe`, and assets.
+    - Start Menu and Desktop shortcuts with `app.ico`.
+    - Chrome, Edge, and Firefox Native Messaging registry keys (`com.swiftget.native`).
+    - Shell associations for `.torrent` and `magnet:` URL protocol with shell open verbs.
+    - Clean uninstallation cleanup.
+  - **Auto-Updater Engine (`src/SwiftGet.Engine/Updating/`)**:
+    - `UpdateManifest` schema with semantic versioning, release notes, MSI download URL, and SHA-256 cryptographic verification.
+    - `UpdateService` implementing HTTPS update checks, progress reporting, hash verification, and silent/passive installer launch.
+    - WinUI 3 "Updates" tab in `OptionsDialog.xaml` and `OptionsViewModel.cs` with live "Check for Updates" trigger.
+  - **Winget Package Manifests (`installer/winget/`)**:
+    - Standards-compliant WinGet v1.6.0 manifests: `SwiftGet.SwiftGet.yaml`, `SwiftGet.SwiftGet.locale.en-US.yaml`, and `SwiftGet.SwiftGet.installer.yaml`.
+  - **Release Packaging Automation (`scripts/package.ps1`)**:
+    - End-to-end automation publishing self-contained x64 binaries, building `SwiftGet-1.0.0-x64.msi` (53.41 MB, fully self-contained runtime), computing SHA-256 hash, updating Winget manifests, and generating `dist/updates.json`.
+  - **Interactive WiX UI Setup Wizard & Disappearance Fix**:
+    - Identified root cause of installer "popup and gone" issue: lack of `WixToolset.UI.wixext` dialog sequences caused Windows Installer to run in non-interactive maintenance/reconfiguration mode when existing installations were detected.
+    - Integrated `WixToolset.UI.wixext` and configured `WixUI_InstallDir` wizard sequence with branded dialog background (`dialog.bmp`), top banner (`banner.bmp`), and EULA (`License.rtf`).
+    - Added `AllowSameVersionUpgrades="yes"` to `<MajorUpgrade>` to ensure seamless replacement/in-place upgrades during same-version iterations.
+    - Added "Launch SwiftGet Download Manager" finish dialog action (`WIXUI_EXITDIALOGOPTIONALCHECKBOX` and `LaunchApp` CustomAction).
+    - Cleaned up stale Windows Installer registry registrations.
+  - **Acceptance & Quality Gates**:
+    - 289/289 .NET tests passing (including 5 updater tests and 3 packaging validation tests) + 11/11 Node.js extension tests (**300/300 total tests passing**).
+    - `pwsh scripts/run-all.ps1 -IncludeBenchmarks` passed all gates.
+    - Verified clean installation, desktop shortcut creation, launch on completion, and clean uninstallation.
+
+## IDM Parity & Browser Extension Integration (Full Feature Alignment)
+- [x] **Complete IDM Documentation Parity Integration**:
+  - **Browser Extension Keyboard Modifiers**:
+    - Full implementation of `Insert` key forced capture: pressing `Insert` and clicking ANY link captures the download immediately.
+    - Full implementation of `Alt` key bypass: pressing `Alt` suppresses SwiftGet and hands transfer to the native browser download manager.
+    - Added tab-state tracking for both `Insert` and `Alt` modifier keys across frames.
+  - **Streaming Media Sniffer Parity**:
+    - Extended media sniffer to scan both `<video>` and `<audio>` HTML5 elements.
+    - Added floating "Download this audio" overlay button with matching glassmorphism styling.
+    - Implemented active streaming manifest sniffing inspecting `<source>` elements and `performance.getEntriesByType("resource")` for `.m3u8` (HLS), `.mpd` (DASH), `.ts`, `.m4a`, and `.mp3` tracks.
+    - Full 4-Stage UI flow verified: Overlay button -> Quality dropdown -> Download File Info modal -> Download complete modal with Open, Open with, Open folder, and drag-and-drop badge.
+  - **Cross-Browser & Firefox WebExtension Support**:
+    - Created `extension/manifest.firefox.json` with Gecko ID `swiftget@swiftget.net`, `strict_min_version: "109.0"`, and background script routing.
+    - Automated extension packaging via `scripts/build-extension.ps1`, generating `swiftget-chromium-v1.0.0.zip` and `swiftget-firefox-v1.0.0.xpi` with SHA-256 verification manifest (`checksums.json`).
+    - Populated `extension/README.md` with complete architectural details, feature matrix, installation guides, and testing procedures.
+  - **Domain Exclusion List (`defexclist.txt`)**:
+    - Created standard `defexclist.txt` exclusion database covering search engines, banking portals, and identity providers.
+    - Created `SiteExclusionService` in `SwiftGet.Engine.Security` to prevent unwanted auto-interception in engine/desktop paths.
+    - Wired `defexclist.txt` into extension default blacklist and MSI installer staging.
+  - **Command-Line Interface (CLI) Full IDM Parity**:
+    - Implemented full IDM CLI switches in `CommandLineParser.cs`: `/d URL`, `/s` (start), `/p PATH`, `/f NAME`, `/q` (exit on complete), `/h` (hang up/disconnect VPN), `/n` (silent), `/a` (enqueue only).
+    - Connected Single-Instance IPC `AddUrl`/`AddDownload` with interactive `ShowDownloadFileInfoDialogAsync` when silent flag is not set.
+  - **Verification & Test Coverage**:
+    - 323/323 .NET tests passing (including new `SiteExclusionServiceTests` and updated `CommandLineParserTests`).
+    - 15/15 Node.js extension tests passing (including tests for Insert-key force capture, audio sniffing, FORCE_INTERCEPT_LINK messaging, and Firefox manifest validation).
+    - `pwsh scripts/run-all.ps1 -SkipLint` master pipeline all gates PASSED in 40.57s.
+
+## QA Automation & Defect Remediation (Phase 0 - Phase 5)
+- [x] **Comprehensive QA Assessment & Test Infrastructure**:
+  - Global unhandled exception handlers added in `App.xaml.cs` (UI dispatcher, background task scheduler, AppDomain).
+  - Diagnostic logging with per-download correlation IDs under `qa-output/logs`.
+  - Configurable Kestrel HTTP test server with 13 edge-case scenarios and in-process loopback BitTorrent swarm harness.
+  - Full FlaUI UIA3 automated crawler cataloging 107 UI controls in `MainWindow.xaml`.
+- [x] **P0 Defect Root-Cause Resolution**:
+  - **P0-1 (Torrents Never Progressing / Starting)**: Fixed remote `.torrent` URL downloading and added 500ms `_telemetryTimer` in `MainWindow.xaml.cs` synchronizing `_torrentEngine.GetJobStats` with `DownloadItemViewModel`.
+  - **P0-2 (Download Progress Not Shown in UI)**: Added `IsIndeterminate` property and bound `ProgressBar.Value`, `IsIndeterminate`, and `Foreground` with `Mode=OneWay`.
+  - **P0-3 (File Size Not Fetched / Hardcoded 19.55 MB)**: Triggered asynchronous `ProbeAsync()` on URL entry and replaced hardcoded constant `20502549` with `0`. Added `Mode=OneWay` to table column `{x:Bind FormattedSize}`.
+- [x] **Security, Telemetry & Reliability Remediation**:
+  - **SEC-01**: Restricted `NativeMessageRouter` shell execution to files within download directories and verified against SQLite.
+  - **SEC-02**: Patched `TorrentPathSanitizer` to pop directory segments on `..`.
+  - **UI-01 / "16 Active" Display**: Replaced hardcoded mockup strings with live dynamic properties `InspectorThreadConnections`, `InspectorProtocol`, and `InspectorChunkAllocationHeader`.
+  - **REL-01**: Eliminated standard I/O pipe buffer deadlock in `MediaTestHarness` by asynchronously draining stdout and stderr tasks concurrently with process execution.
+- [x] **Verification & Release Packaging**:
+  - Total automated tests: **477/477 tests passing** (459 .NET across 6 test assemblies + 18 Node.js).
+  - Master pipeline `scripts/run-all.ps1 -SkipLint` passed all gates in 58.48s.
+  - Built updated release package `dist/SwiftGet-1.0.0-x64.msi` (54.13 MB, SHA-256: `0c36dd8765478fb1430bcfe19d50b07e3f6e90c6fd9e86d3121d484121abd163`).
+  - Generated auto-updater feed `dist/updates.json` and updated WinGet package manifests in `installer/winget/`.
+
+## Critical Download Flow, yt-dlp & UI Alignment Remediation (B1 - B6)
+- [x] **B1: Single Flow Enforcement & Extension Mock Removal**:
+  - Identified root cause of double flow: `extension/content.js` previously contained simulated in-DOM HTML dialogs (`showDownloadFileInfoModal` and `showDownloadCompleteModal`) with hardcoded mock size `19.55 MB / 20502549 bytes` that triggered immediate fake completion in 400ms while simultaneously dispatching `INTERCEPT_MEDIA` to NativeHost.
+  - Completely removed mock HTML modals from `content.js`. Replaced with single direct dispatch `dispatchMediaDownload` sending `INTERCEPT_MEDIA` with a unique `correlationId`.
+  - Added `UrlMediaDetector.IsStreamingMediaPlatformUrl` in `SwiftGet.Core` to classify YouTube and other video platforms uniformly across layers.
+  - Added 30-second TTL correlation ID deduplication cache in `NativeMessageRouter` to prevent double handoffs.
+  - Forwarded `JobKind.Media` and `CorrelationId` in `SingleInstanceMessage` so media URLs always route to `MediaDownloadDialog`.
+- [x] **B2: Real File Integrity & Library Verification**:
+  - Identified that the 19.55 MB file never existed on disk; it was a client-side mock constant in the content script and a fallback in `MainWindow.xaml.cs`.
+  - Added strict verification in `MainWindow.StartMediaDownloadAsync`: download completion and dialog only trigger if the file physically exists on disk and has non-zero size (`> 0`). Missing files are marked `DownloadStatus.Failed`.
+  - Enforced SQLite persistence for all downloads entering the media pipeline, ensuring All Downloads, Finished, and Unfinished counts in the main UI remain strictly consistent with the database.
+- [x] **B3: yt-dlp [WinError 448] (ERROR_UNTRUSTED_MOUNT_POINT) Remediation**:
+  - Determined root cause: `SidecarManager.ExecuteSidecarAsync` did not set `WorkingDirectory` (inheriting current directory), did not isolate `TEMP`/`TMP` (causing PyInstaller self-extractor to unpack into user temp on junctions or OneDrive-synced profiles), and allowed `yt-dlp` to write to the default user cache in `%LOCALAPPDATA%\yt-dlp\cache` where Windows blocks traversal across reparse points under restricted security tokens.
+  - Implemented `PathResolver.GetPhysicalPath` using Win32 `GetFinalPathNameByHandle` to resolve junctions, directory symlinks, and reparse points to real physical volume paths.
+  - Added safe app-owned temp directory `%LOCALAPPDATA%\SwiftGet\temp` and cache directory `%LOCALAPPDATA%\SwiftGet\cache\yt-dlp`, setting isolated `TEMP`/`TMP` environment variables and injecting `--cache-dir` for `yt-dlp`.
+  - Added `CheckSidecarsHealthAsync` startup self-check reporting version and diagnostic status.
+  - Created failing regression test `SidecarJunctionTests.cs` using Windows `mklink /J` to verify physical path resolution and safe sidecar execution.
+  - Formatted user-friendly error messages replacing raw WinError 448 text with clear guidance and an automatic path fix option.
+- [x] **B4: Download Streaming Media Dialog State Bugs**:
+  - Implemented WinUI 3 `InfoBar` (Error severity, selectable wrapping text, with Retry, Fix automatically, and Copy details buttons).
+  - Replaced frozen "Loading media stream info..." card title with "Failed to load media info" and state icons on failure.
+  - Added `ProgressRing` while probing, disabled `ComboBox` with "No formats available" placeholder when empty, and bound `CanDownload` to disable primary/secondary buttons until formats load successfully.
+- [x] **B5: File Name & Path Sanitization**:
+  - Implemented `FileNameSanitizer.SanitizeMediaTitle`: strips notification counters (`(50)`), removes trailing site suffixes (` - YouTube`, ` - Vimeo`), replaces colons with readable ` - ` separators instead of underscores, and trims trailing dots and spaces to prevent double dots (`..mp4`).
+  - Implemented `FileNameSanitizer.FormatFileSizeWithExactBytes` producing `19.55 MB (20,502,549 bytes)` with locale thousands separators and consistent lowercase `bytes`.
+  - Resolved all paths to full physical paths in `DownloadFileInfoDialog`, `DownloadCompleteDialog`, and `MediaDownloadDialog`.
+- [x] **B6: UI Alignment & Typography System Across Dialogs**:
+  - `DownloadCompleteDialog.xaml`: Replaced custom SVG envelope with Fluent success checkmark icon (`\uE73E`), left-aligned labels to field edges, placed checkbox on dedicated full-width row, set `MinWidth="90"` on action buttons, and replaced orange arrow badge with standard Fluent drag button.
+  - `MediaDownloadDialog.xaml`: Fixed URL TextBox and Fetch Info button layout in a 2-column Grid without overlapping margins; flush right edge alignment across rows; equalized bottom button spacing.
+  - `DownloadFileInfoDialog.xaml`: Aligned right edges of URL, Category, Save As, Remember Path, and Description rows; added ellipsis and full-path tooltip to Save As field.
+- [x] **Verification & Test Coverage**:
+  - Total automated tests passing: **495 tests** (476 .NET across all 7 test projects + 19 Node.js extension tests).
+  - All test gates passing in `scripts/run-all.ps1 -SkipLint`.
+  - Release MSI packaged: `dist/SwiftGet-1.0.0-x64.msi` (54.14 MB, SHA-256: `70df75e07a93ed8483e19afffd78674f0f7371af9d5676572aced9649f1b04ee`).

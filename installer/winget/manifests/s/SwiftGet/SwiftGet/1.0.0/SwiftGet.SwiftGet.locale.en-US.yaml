@@ -1,0 +1,31 @@
+PackageIdentifier: SwiftGet.SwiftGet
+PackageVersion: 1.0.0
+PackageLocale: en-US
+Publisher: SwiftGet Contributors
+PublisherUrl: https://github.com/swiftget/swiftget
+PublisherSupportUrl: https://github.com/swiftget/swiftget/issues
+PackageName: SwiftGet Download Manager
+PackageUrl: https://github.com/swiftget/swiftget
+License: MIT
+LicenseUrl: https://github.com/swiftget/swiftget/blob/main/LICENSE
+Copyright: Copyright (c) 2026 SwiftGet Contributors
+ShortDescription: High-performance IDM-class download accelerator with BitTorrent and media grabber integration for Windows 10/11.
+Description: |
+  SwiftGet is a high-performance IDM-class download accelerator for Windows 10/11 featuring:
+  - Multi-segment dynamic splitting with adaptive thread scaling
+  - 100% IDM behavioral parity with modern WinUI 3 fluent design
+  - Full BitTorrent and Magnet protocol integration (v1/v2, DHT, PeX, LSD)
+  - YouTube, HLS, and DASH media grabber integration
+  - Native messaging browser extensions for Chrome, Edge, and Firefox
+Moniker: swiftget
+Tags:
+  - download-manager
+  - accelerator
+  - bittorrent
+  - torrent
+  - magnet
+  - idm
+  - youtube-dl
+  - grabber
+ManifestType: defaultLocale
+ManifestVersion: 1.6.0

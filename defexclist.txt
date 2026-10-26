@@ -1,0 +1,30 @@
+# SwiftGet Default Domain Exclusion List (defexclist.txt)
+# Prevents automatic interception of search engines, social media navigation,
+# authentication providers, streaming playback segments, and online banking.
+
+google.com
+accounts.google.com
+apis.google.com
+gstatic.com
+bing.com
+duckduckgo.com
+yahoo.com
+live.com
+login.live.com
+microsoft.com
+login.microsoftonline.com
+apple.com
+icloud.com
+facebook.com
+twitter.com
+x.com
+instagram.com
+linkedin.com
+netflix.com
+spotify.com
+github.com
+bankofamerica.com
+chase.com
+wellsfargo.com
+paypal.com
+stripe.com

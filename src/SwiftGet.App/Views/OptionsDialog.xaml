@@ -1,0 +1,305 @@
+<ContentDialog
+    x:Class="SwiftGet.App.Views.OptionsDialog"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:vm="using:SwiftGet.App.ViewModels"
+    Title="Options &amp; Configuration"
+    PrimaryButtonText="OK"
+    CloseButtonText="Cancel"
+    DefaultButton="Primary"
+    Width="680"
+    Height="560">
+
+    <Grid Margin="0,8,0,0">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="*" />
+            <RowDefinition Height="Auto" />
+        </Grid.RowDefinitions>
+
+        <!-- Main Tab Control -->
+        <TabView Grid.Row="0" IsAddTabButtonVisible="False" TabWidthMode="Equal">
+            <!-- TAB 1: Categories -->
+            <TabViewItem Header="Categories" IsClosable="False">
+                <ScrollViewer VerticalScrollBarVisibility="Auto" Padding="4,8">
+                    <StackPanel Spacing="12">
+                        <Grid ColumnSpacing="12">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="Auto" />
+                                <ColumnDefinition Width="*" />
+                            </Grid.ColumnDefinitions>
+                            <TextBlock Text="Category:" VerticalAlignment="Center" FontWeight="SemiBold" />
+                            <ComboBox Grid.Column="1" HorizontalAlignment="Stretch"
+                                      ItemsSource="{x:Bind ViewModel.Categories}"
+                                      SelectedItem="{x:Bind ViewModel.SelectedCategory, Mode=TwoWay}"
+                                      DisplayMemberPath="Name" />
+                        </Grid>
+
+                        <TextBox Header="Save To Directory:"
+                                 Text="{x:Bind ViewModel.CategoryTargetDirectory, Mode=TwoWay}"
+                                 PlaceholderText="%USERPROFILE%\Downloads\..." />
+
+                        <TextBox Header="File Extensions (space-separated):"
+                                 Text="{x:Bind ViewModel.CategoryFileExtensions, Mode=TwoWay}"
+                                 PlaceholderText=".zip .rar .7z .tar .gz" />
+
+                        <Button Content="Apply to Category" Command="{x:Bind ViewModel.SaveCategoryCommand}" HorizontalAlignment="Right" />
+                    </StackPanel>
+                </ScrollViewer>
+            </TabViewItem>
+
+            <!-- TAB 2: Antivirus -->
+            <TabViewItem Header="Antivirus" IsClosable="False">
+                <ScrollViewer VerticalScrollBarVisibility="Auto" Padding="4,8">
+                    <StackPanel Spacing="12">
+                        <Border Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+                                BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                                BorderThickness="1" CornerRadius="4" Padding="12">
+                            <StackPanel Spacing="10">
+                                <CheckBox Content="Scan completed downloads for viruses"
+                                          IsChecked="{x:Bind ViewModel.AntivirusEnabled, Mode=TwoWay}"
+                                          FontWeight="SemiBold" />
+
+                                <RadioButton GroupName="AvGroup" Content="Use Windows Defender (MpCmdRun.exe)"
+                                             IsChecked="{x:Bind ViewModel.UseWindowsDefender, Mode=TwoWay}"
+                                             IsEnabled="{x:Bind ViewModel.AntivirusEnabled, Mode=OneWay}"
+                                             Margin="24,0,0,0" />
+
+                                <RadioButton GroupName="AvGroup" Content="Use custom antivirus scanner executable"
+                                             IsEnabled="{x:Bind ViewModel.AntivirusEnabled, Mode=OneWay}"
+                                             Margin="24,0,0,0" />
+
+                                <TextBox Header="Scanner Executable Path:"
+                                         Text="{x:Bind ViewModel.CustomScannerPath, Mode=TwoWay}"
+                                         IsEnabled="{x:Bind ViewModel.AntivirusEnabled, Mode=OneWay}"
+                                         PlaceholderText="C:\Program Files\Antivirus\scan.exe"
+                                         Margin="24,0,0,0" />
+
+                                <TextBox Header="Scanner Arguments Pattern:"
+                                         Text="{x:Bind ViewModel.CustomScannerArguments, Mode=TwoWay}"
+                                         IsEnabled="{x:Bind ViewModel.AntivirusEnabled, Mode=OneWay}"
+                                         PlaceholderText="&quot;{path}&quot;"
+                                         Margin="24,0,0,0" />
+                            </StackPanel>
+                        </Border>
+                    </StackPanel>
+                </ScrollViewer>
+            </TabViewItem>
+
+            <!-- TAB 3: Sounds -->
+            <TabViewItem Header="Sounds" IsClosable="False">
+                <ScrollViewer VerticalScrollBarVisibility="Auto" Padding="4,8">
+                    <StackPanel Spacing="12">
+                        <Border Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+                                BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                                BorderThickness="1" CornerRadius="4" Padding="12">
+                            <StackPanel Spacing="10">
+                                <TextBlock Text="Sound Events:" FontWeight="SemiBold" />
+                                <Grid ColumnSpacing="12" RowSpacing="8">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*" />
+                                        <ColumnDefinition Width="Auto" />
+                                    </Grid.ColumnDefinitions>
+                                    <Grid.RowDefinitions>
+                                        <RowDefinition Height="Auto" />
+                                        <RowDefinition Height="Auto" />
+                                        <RowDefinition Height="Auto" />
+                                    </Grid.RowDefinitions>
+
+                                    <CheckBox Grid.Row="0" Grid.Column="0" Content="Download complete"
+                                              IsChecked="{x:Bind ViewModel.SoundDownloadCompleteEnabled, Mode=TwoWay}" />
+                                    <Button Grid.Row="0" Grid.Column="1" Content="Test"
+                                            Command="{x:Bind ViewModel.TestSoundCommand}" CommandParameter="complete" />
+
+                                    <CheckBox Grid.Row="1" Grid.Column="0" Content="Download error"
+                                              IsChecked="{x:Bind ViewModel.SoundDownloadErrorEnabled, Mode=TwoWay}" />
+                                    <Button Grid.Row="1" Grid.Column="1" Content="Test"
+                                            Command="{x:Bind ViewModel.TestSoundCommand}" CommandParameter="error" />
+
+                                    <CheckBox Grid.Row="2" Grid.Column="0" Content="Queue complete"
+                                              IsChecked="{x:Bind ViewModel.SoundQueueCompleteEnabled, Mode=TwoWay}" />
+                                    <Button Grid.Row="2" Grid.Column="1" Content="Test"
+                                            Command="{x:Bind ViewModel.TestSoundCommand}" CommandParameter="queue" />
+                                </Grid>
+
+                                <TextBox Header="Custom WAV Audio Path (optional):"
+                                         Text="{x:Bind ViewModel.CustomSoundPath, Mode=TwoWay}"
+                                         PlaceholderText="C:\Windows\Media\tada.wav"
+                                         Margin="0,8,0,0" />
+                            </StackPanel>
+                        </Border>
+                    </StackPanel>
+                </ScrollViewer>
+            </TabViewItem>
+
+            <!-- TAB 4: Connection -->
+            <TabViewItem Header="Connection" IsClosable="False">
+                <ScrollViewer VerticalScrollBarVisibility="Auto" Padding="4,8">
+                    <StackPanel Spacing="12">
+                        <Border Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+                                BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                                BorderThickness="1" CornerRadius="4" Padding="12">
+                            <StackPanel Spacing="10">
+                                <TextBlock Text="Connection &amp; Speed Limits:" FontWeight="SemiBold" />
+                                <NumberBox Header="Default Max Connections per Download:"
+                                           Value="{x:Bind ViewModel.MaxConnections, Mode=TwoWay}"
+                                           Minimum="1" Maximum="32" SmallChange="1" SpinButtonPlacementMode="Inline" />
+
+                                <CheckBox Content="Enable Global Speed Limiter"
+                                          IsChecked="{x:Bind ViewModel.IsLimiterEnabled, Mode=TwoWay}" />
+
+                                <NumberBox Header="Global Speed Limit (KB/s):"
+                                           Value="{x:Bind ViewModel.SpeedLimitKbps, Mode=TwoWay}"
+                                           IsEnabled="{x:Bind ViewModel.IsLimiterEnabled, Mode=OneWay}"
+                                           Minimum="16" Maximum="1000000" SmallChange="128" SpinButtonPlacementMode="Inline" />
+                            </StackPanel>
+                        </Border>
+                    </StackPanel>
+                </ScrollViewer>
+            </TabViewItem>
+
+            <!-- TAB 5: BitTorrent -->
+            <TabViewItem Header="BitTorrent" IsClosable="False">
+                <ScrollViewer VerticalScrollBarVisibility="Auto" Padding="4,8">
+                    <StackPanel Spacing="12">
+                        <!-- Port & UPnP -->
+                        <Border Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+                                BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                                BorderThickness="1" CornerRadius="4" Padding="12">
+                            <StackPanel Spacing="10">
+                                <TextBlock Text="Listening Port &amp; NAT:" FontWeight="SemiBold" />
+                                <Grid ColumnSpacing="8">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*" />
+                                        <ColumnDefinition Width="Auto" />
+                                    </Grid.ColumnDefinitions>
+                                    <NumberBox Header="Incoming Listen Port:"
+                                               Value="{x:Bind ViewModel.TorrentListenPort, Mode=TwoWay}"
+                                               Minimum="1024" Maximum="65535" SmallChange="1" SpinButtonPlacementMode="Inline" />
+                                    <Button Grid.Column="1" VerticalAlignment="Bottom" Content="Randomize"
+                                            Command="{x:Bind ViewModel.RandomizePortCommand}" Margin="0,0,0,2" />
+                                </Grid>
+                                <CheckBox Content="Enable UPnP / NAT-PMP automatic port forwarding"
+                                          IsChecked="{x:Bind ViewModel.TorrentEnableUpnp, Mode=TwoWay}" />
+                            </StackPanel>
+                        </Border>
+
+                        <!-- Protocol Features -->
+                        <Border Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+                                BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                                BorderThickness="1" CornerRadius="4" Padding="12">
+                            <StackPanel Spacing="10">
+                                <TextBlock Text="Protocol Options:" FontWeight="SemiBold" />
+                                <CheckBox Content="Enable Distributed Hash Table (DHT / trackerless networks)"
+                                          IsChecked="{x:Bind ViewModel.TorrentEnableDht, Mode=TwoWay}" />
+                                <CheckBox Content="Enable Peer Exchange (PeX / BEP 11)"
+                                          IsChecked="{x:Bind ViewModel.TorrentEnablePex, Mode=TwoWay}" />
+                                <CheckBox Content="Enable Local Peer Discovery (LSD / multicast)"
+                                          IsChecked="{x:Bind ViewModel.TorrentEnableLsd, Mode=TwoWay}" />
+                                <CheckBox Content="Prefer encrypted peer connections (BEP 8 / MSE)"
+                                          IsChecked="{x:Bind ViewModel.TorrentPreferEncryption, Mode=TwoWay}" />
+                            </StackPanel>
+                        </Border>
+
+                        <!-- Limits -->
+                        <Border Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+                                BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                                BorderThickness="1" CornerRadius="4" Padding="12">
+                            <StackPanel Spacing="10">
+                                <TextBlock Text="Connections &amp; Bandwidth Limits:" FontWeight="SemiBold" />
+                                <NumberBox Header="Maximum Global Connections:"
+                                           Value="{x:Bind ViewModel.TorrentMaxConnections, Mode=TwoWay}"
+                                           Minimum="10" Maximum="2000" SmallChange="10" SpinButtonPlacementMode="Inline" />
+                                <Grid ColumnSpacing="12">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*" />
+                                        <ColumnDefinition Width="*" />
+                                    </Grid.ColumnDefinitions>
+                                    <NumberBox Grid.Column="0" Header="Max Download Rate (KB/s, 0=unlimited):"
+                                               Value="{x:Bind ViewModel.TorrentMaxDownloadRateKbps, Mode=TwoWay}"
+                                               Minimum="0" Maximum="1000000" SmallChange="128" SpinButtonPlacementMode="Inline" />
+                                    <NumberBox Grid.Column="1" Header="Max Upload Rate (KB/s, 0=unlimited):"
+                                               Value="{x:Bind ViewModel.TorrentMaxUploadRateKbps, Mode=TwoWay}"
+                                               Minimum="0" Maximum="1000000" SmallChange="128" SpinButtonPlacementMode="Inline" />
+                                </Grid>
+                            </StackPanel>
+                        </Border>
+
+                        <!-- Seeding Limits -->
+                        <Border Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+                                BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                                BorderThickness="1" CornerRadius="4" Padding="12">
+                            <StackPanel Spacing="10">
+                                <TextBlock Text="Seeding Rules:" FontWeight="SemiBold" />
+                                <Grid ColumnSpacing="12">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*" />
+                                        <ColumnDefinition Width="*" />
+                                    </Grid.ColumnDefinitions>
+                                    <NumberBox Grid.Column="0" Header="Default Seed Ratio (0=unlimited):"
+                                               Value="{x:Bind ViewModel.TorrentDefaultSeedRatio, Mode=TwoWay}"
+                                               Minimum="0" Maximum="100" SmallChange="0.5" SpinButtonPlacementMode="Inline" />
+                                    <NumberBox Grid.Column="1" Header="Seed Time Limit (mins, 0=unlimited):"
+                                               Value="{x:Bind ViewModel.TorrentDefaultSeedTimeMins, Mode=TwoWay}"
+                                               Minimum="0" Maximum="100000" SmallChange="30" SpinButtonPlacementMode="Inline" />
+                                </Grid>
+                            </StackPanel>
+                        </Border>
+
+                        <!-- Associations -->
+                        <Border Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+                                BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                                BorderThickness="1" CornerRadius="4" Padding="12">
+                            <StackPanel Spacing="10">
+                                <TextBlock Text="Windows File Associations:" FontWeight="SemiBold" />
+                                <TextBlock Text="{x:Bind ViewModel.AssociationStatus, Mode=OneWay}"
+                                           FontSize="12" Foreground="{ThemeResource TextFillColorSecondaryBrush}" TextWrapping="Wrap" />
+                                <StackPanel Orientation="Horizontal" Spacing="8">
+                                    <Button Content="Register as Default (.torrent &amp; magnet:)"
+                                            Command="{x:Bind ViewModel.RegisterAssociationsCommand}" />
+                                    <Button Content="Default Apps Settings"
+                                            Command="{x:Bind ViewModel.OpenDefaultAppsCommand}" />
+                                </StackPanel>
+                            </StackPanel>
+                        </Border>
+                    </StackPanel>
+                </ScrollViewer>
+            </TabViewItem>
+
+            <!-- TAB 6: Updates -->
+            <TabViewItem Header="Updates" IsClosable="False">
+                <ScrollViewer VerticalScrollBarVisibility="Auto" Padding="4,8">
+                    <StackPanel Spacing="12">
+                        <Border Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+                                BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                                BorderThickness="1" CornerRadius="4" Padding="12">
+                            <StackPanel Spacing="12">
+                                <StackPanel Orientation="Horizontal" Spacing="12" VerticalAlignment="Center">
+                                    <Image Source="ms-appx:///Assets/Square50x50Logo.png" Width="40" Height="40" />
+                                    <StackPanel VerticalAlignment="Center">
+                                        <TextBlock Text="SwiftGet Download Manager" FontWeight="Bold" FontSize="15" />
+                                        <TextBlock Text="{x:Bind ViewModel.UpdateStatusText, Mode=OneWay}"
+                                                   FontSize="12" Foreground="{ThemeResource TextFillColorSecondaryBrush}" TextWrapping="Wrap" />
+                                    </StackPanel>
+                                </StackPanel>
+
+                                <TextBox Header="Update Feed URL:"
+                                         Text="{x:Bind ViewModel.UpdateFeedUrl, Mode=TwoWay}" />
+
+                                <StackPanel Orientation="Horizontal" Spacing="8">
+                                    <Button Content="Check for Updates Now"
+                                            Command="{x:Bind ViewModel.CheckForUpdatesCommand}" />
+                                    <ProgressRing IsActive="{x:Bind ViewModel.IsCheckingForUpdates, Mode=OneWay}"
+                                                  Width="20" Height="20" />
+                                </StackPanel>
+                            </StackPanel>
+                        </Border>
+                    </StackPanel>
+                </ScrollViewer>
+            </TabViewItem>
+        </TabView>
+
+        <!-- Status Message -->
+        <TextBlock Grid.Row="1" Text="{x:Bind ViewModel.StatusMessage, Mode=OneWay}"
+                   FontSize="12" Foreground="{ThemeResource TextFillColorSecondaryBrush}" Margin="4,8,4,0" />
+    </Grid>
+</ContentDialog>

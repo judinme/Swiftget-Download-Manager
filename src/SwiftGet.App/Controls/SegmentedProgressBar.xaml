@@ -1,0 +1,21 @@
+<UserControl
+    x:Class="SwiftGet.App.Controls.SegmentedProgressBar"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:vm="using:SwiftGet.App.ViewModels">
+
+    <Grid Height="24" CornerRadius="4" Background="{ThemeResource CardBackgroundFillColorDefaultBrush}" BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}" BorderThickness="1">
+        <!-- Background track -->
+        <ProgressBar
+            x:Name="OverallProgressBar"
+            Height="24"
+            Minimum="0"
+            Maximum="100"
+            Value="0"
+            Opacity="0.3"
+            IsIndeterminate="False" />
+
+        <!-- Segment overlay canvas -->
+        <Canvas x:Name="SegmentsCanvas" Height="24" SizeChanged="SegmentsCanvas_SizeChanged" />
+    </Grid>
+</UserControl>

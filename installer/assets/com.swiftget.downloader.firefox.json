@@ -1,0 +1,9 @@
+{
+  "name": "com.swiftget.downloader",
+  "description": "SwiftGet Native Messaging Host for Mozilla Firefox",
+  "path": "SwiftGet.NativeHost.exe",
+  "type": "stdio",
+  "allowed_extensions": [
+    "swiftget@swiftget.net"
+  ]
+}

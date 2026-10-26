@@ -1,0 +1,11 @@
+{
+  "name": "com.swiftget.downloader",
+  "description": "SwiftGet Native Messaging Host for Chrome and Chromium Browsers",
+  "path": "SwiftGet.NativeHost.exe",
+  "type": "stdio",
+  "allowed_origins": [
+    "chrome-extension://jidfbhpjcelebmiokljcmmljbfgiiolh/",
+    "chrome-extension://albogoggaijdbgdldghgfcjakpdbmmfm/",
+    "chrome-extension://swiftget-extension-id/"
+  ]
+}
