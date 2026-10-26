@@ -192,7 +192,7 @@ public sealed partial class MediaDownloadViewModel : ObservableObject
         {
             HasError = true;
             Title = "Failed to load media info";
-            ErrorMessage = SidecarManager.FormatSidecarError(ex.Message, SaveDirectory);
+            ErrorMessage = SidecarManager.FormatSidecarError(ex.Message, null);
             ErrorDetails = ex.ToString();
             StatusMessage = $"Failed to extract media: {ErrorMessage}";
             Formats.Clear();
@@ -231,12 +231,21 @@ public sealed partial class MediaDownloadViewModel : ObservableObject
     }
 
     [RelayCommand]
-    public void FixPathAutomatically()
+    public async Task FixPathAutomaticallyAsync(CancellationToken ct = default)
     {
         if (!string.IsNullOrWhiteSpace(SaveDirectory))
         {
             SaveDirectory = PathResolver.GetPhysicalPath(SaveDirectory);
             StatusMessage = $"Resolved save directory to physical path: {SaveDirectory}";
+        }
+
+        HasError = false;
+        ErrorMessage = string.Empty;
+        ErrorDetails = string.Empty;
+
+        if (!string.IsNullOrWhiteSpace(MediaUrl))
+        {
+            await ProbeMediaAsync(ct).ConfigureAwait(true);
         }
     }
 
@@ -253,6 +262,7 @@ public sealed partial class MediaDownloadViewModel : ObservableObject
 
         var category = _categoryManager.ResolveCategory(cleanName);
         var targetDir = string.IsNullOrWhiteSpace(SaveDirectory) ? category.TargetDirectory : SaveDirectory;
+        targetDir = PathResolver.GetPhysicalPath(targetDir);
         var destPath = Path.Combine(targetDir, cleanName);
 
         var item = new DownloadItem

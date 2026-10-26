@@ -67,6 +67,18 @@ Copy-Item (Join-Path $assetsDir "*.json") $stagingDir -Force
 # Copy IDM domain exclusion list into staging directory
 Copy-Item (Join-Path $Root "defexclist.txt") $stagingDir -Force
 
+# Stage media sidecars into staging directory
+$sidecarsSource = Join-Path $Root "src\SwiftGet.App\sidecars"
+if (-not (Test-Path $sidecarsSource)) {
+    $sidecarsSource = "C:\Users\SPARK\AppData\Local\SwiftGet\sidecars"
+}
+if (Test-Path $sidecarsSource) {
+    $stagingSidecars = Join-Path $stagingDir "sidecars"
+    New-Item -ItemType Directory -Force -Path $stagingSidecars | Out-Null
+    Copy-Item (Join-Path $sidecarsSource "*") $stagingSidecars -Recurse -Force
+    Write-Host "Staged media sidecars into $stagingSidecars" -ForegroundColor DarkCyan
+}
+
 # 3. Build Browser Extensions (Chromium & Firefox)
 Write-Host "`n[3/5] Packaging Browser Extensions..." -ForegroundColor Yellow
 $extScript = Join-Path $PSScriptRoot "build-extension.ps1"

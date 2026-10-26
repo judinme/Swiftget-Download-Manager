@@ -178,6 +178,12 @@ public sealed class SidecarManager
         if (string.IsNullOrWhiteSpace(rawError))
             return "An unknown sidecar error occurred.";
 
+        // Prevent double-formatting and overwriting the original failing path
+        if (rawError.Contains("is a redirected or junction folder", StringComparison.OrdinalIgnoreCase))
+        {
+            return rawError;
+        }
+
         if (rawError.Contains("WinError 448", StringComparison.OrdinalIgnoreCase) ||
             rawError.Contains("untrusted mount point", StringComparison.OrdinalIgnoreCase) ||
             rawError.Contains("ERROR_UNTRUSTED_MOUNT_POINT", StringComparison.OrdinalIgnoreCase))
@@ -228,11 +234,18 @@ public sealed class SidecarManager
         var isYtDlp = Path.GetFileNameWithoutExtension(resolvedBinary).Equals("yt-dlp", StringComparison.OrdinalIgnoreCase);
         var argsList = arguments.ToList();
 
-        // If yt-dlp, isolate cache-dir to prevent touching user-profile junctions / cloud folders
-        if (isYtDlp && !argsList.Any(a => a.Equals("--cache-dir", StringComparison.OrdinalIgnoreCase)))
+        // If yt-dlp, isolate cache-dir and disable external config locations to prevent touching user-profile junctions / cloud folders
+        if (isYtDlp)
         {
-            argsList.Insert(0, safeCache);
-            argsList.Insert(0, "--cache-dir");
+            if (!argsList.Any(a => a.Equals("--cache-dir", StringComparison.OrdinalIgnoreCase)))
+            {
+                argsList.Insert(0, safeCache);
+                argsList.Insert(0, "--cache-dir");
+            }
+            if (!argsList.Any(a => a.Equals("--no-config-locations", StringComparison.OrdinalIgnoreCase)))
+            {
+                argsList.Insert(0, "--no-config-locations");
+            }
         }
 
         foreach (var arg in argsList)
@@ -283,6 +296,15 @@ public sealed class SidecarManager
                 ExitCode = process.ExitCode,
                 StandardOutput = stdoutBuilder.ToString(),
                 StandardError = stderrBuilder.ToString()
+            };
+        }
+        catch (System.ComponentModel.Win32Exception w32Ex)
+        {
+            return new SidecarProcessResult
+            {
+                ExitCode = w32Ex.NativeErrorCode != 0 ? w32Ex.NativeErrorCode : -1,
+                StandardOutput = stdoutBuilder.ToString(),
+                StandardError = $"Process execution failed: [WinError {w32Ex.NativeErrorCode}] {w32Ex.Message}"
             };
         }
         catch (OperationCanceledException)
@@ -358,21 +380,21 @@ public sealed class SidecarManager
 
     private string? FindBinary(string binaryName)
     {
-        // 1. Check sidecars directory
-        var localPath = Path.Combine(_sidecarsDir, binaryName);
-        if (File.Exists(localPath) && VerifyBinary(localPath)) return PathResolver.GetPhysicalPath(localPath);
-
-        // 1b. Check bin directory under SwiftGet
-        var localAppData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
-        var binPath = Path.Combine(localAppData, "SwiftGet", "bin", binaryName);
-        if (File.Exists(binPath) && VerifyBinary(binPath)) return PathResolver.GetPhysicalPath(binPath);
-
-        // 2. Check application directory
+        // 1. Check application directory first (self-contained / installed application)
         var appPath = Path.Combine(AppContext.BaseDirectory, binaryName);
         if (File.Exists(appPath) && VerifyBinary(appPath)) return PathResolver.GetPhysicalPath(appPath);
 
         var subDirAppPath = Path.Combine(AppContext.BaseDirectory, "sidecars", binaryName);
         if (File.Exists(subDirAppPath) && VerifyBinary(subDirAppPath)) return PathResolver.GetPhysicalPath(subDirAppPath);
+
+        // 2. Check local user sidecars directory
+        var localPath = Path.Combine(_sidecarsDir, binaryName);
+        if (File.Exists(localPath) && VerifyBinary(localPath)) return PathResolver.GetPhysicalPath(localPath);
+
+        // 2b. Check bin directory under SwiftGet
+        var localAppData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
+        var binPath = Path.Combine(localAppData, "SwiftGet", "bin", binaryName);
+        if (File.Exists(binPath) && VerifyBinary(binPath)) return PathResolver.GetPhysicalPath(binPath);
 
         // PATH search removed per Hard Constraint 5 to prevent binary planting
         return null;

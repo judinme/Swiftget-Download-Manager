@@ -11,6 +11,7 @@ using SwiftGet.Core.Storage;
 using SwiftGet.Engine.Categories;
 using SwiftGet.Media.Extractor;
 using SwiftGet.Media.Models;
+using SwiftGet.Media.Sidecars;
 using Xunit;
 
 namespace SwiftGet.App.Tests;
@@ -254,6 +255,63 @@ public sealed class MediaDownloadViewModelTests : IAsyncDisposable
         vm.FileName.Should().NotContain("..mp4");
         vm.FileName.Should().NotContain("(50)");
         vm.FileName.Should().NotContain(" - YouTube");
+    }
+
+    [Fact]
+    public async Task ProbeMediaAsync_WithRealExtractor_ProbesSuccessfully()
+    {
+        await _db.InitializeAsync();
+        var manager = new SidecarManager();
+        if (!manager.IsYtDlpAvailable()) return;
+
+        var extractor = new YtDlpMediaExtractor(manager);
+        var vm = new MediaDownloadViewModel(extractor, _db, _categoryManager)
+        {
+            MediaUrl = "https://www.youtube.com/watch?v=P6pcTK0wTYA"
+        };
+
+        await vm.ProbeMediaAsync();
+        if (vm.HasError)
+        {
+            throw new InvalidOperationException($"VM Error: {vm.ErrorMessage}\nDetails: {vm.ErrorDetails}");
+        }
+
+        vm.HasError.Should().BeFalse();
+        vm.Formats.Should().NotBeEmpty();
+    }
+
+    [Fact]
+    public async Task FixPathAutomatically_ResolvesPhysicalPath_ClearsError_AndRetriesProbe()
+    {
+        await _db.InitializeAsync();
+        var stubExtractor = new StubMediaExtractor
+        {
+            ExceptionToThrow = new InvalidOperationException("yt-dlp extraction failed: ERROR: [WinError 448] The path cannot be traversed because it contains an untrusted mount point")
+        };
+
+        var vm = new MediaDownloadViewModel(stubExtractor, _db, _categoryManager)
+        {
+            MediaUrl = "https://youtube.com/watch?v=broken",
+            SaveDirectory = "C:\\Temp"
+        };
+
+        await vm.ProbeMediaAsync();
+        vm.HasError.Should().BeTrue();
+
+        // Stub now succeeds after path fix
+        stubExtractor.ExceptionToThrow = null;
+        stubExtractor.MetadataToReturn = new MediaMetadata
+        {
+            Title = "Fixed Video",
+            Formats = [new MediaFormat { FormatId = "18", Extension = "mp4", HasVideo = true, HasAudio = true }]
+        };
+
+        await vm.FixPathAutomaticallyCommand.ExecuteAsync(null);
+
+        vm.HasError.Should().BeFalse();
+        vm.Formats.Should().NotBeEmpty();
+        vm.Title.Should().Be("Fixed Video");
+        vm.CanDownload.Should().BeTrue();
     }
 
     private sealed class StubMediaExtractor : IMediaExtractor

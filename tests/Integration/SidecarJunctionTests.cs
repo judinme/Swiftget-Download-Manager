@@ -86,6 +86,18 @@ public sealed class SidecarJunctionTests : IDisposable
         friendly.Should().Contain("Fix automatically");
     }
 
+    [Fact]
+    public void FormatUntrustedMountPointError_WhenAlreadyFormatted_DoesNotOverwritePathContext()
+    {
+        var rawError = "yt-dlp extraction failed: ERROR: [WinError 448] The path cannot be traversed because it contains an untrusted mount point";
+        var firstFormatted = SidecarManager.FormatSidecarError(rawError, _junctionDir);
+        var secondFormatted = SidecarManager.FormatSidecarError(firstFormatted, "C:\\Users\\SPARK\\Downloads");
+
+        secondFormatted.Should().Be(firstFormatted);
+        secondFormatted.Should().Contain(_junctionDir);
+        secondFormatted.Should().NotContain("C:\\Users\\SPARK\\Downloads");
+    }
+
     public void Dispose()
     {
         try

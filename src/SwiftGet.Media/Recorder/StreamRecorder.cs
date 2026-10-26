@@ -6,6 +6,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
+using SwiftGet.Core.IO;
 using SwiftGet.Media.Sidecars;
 
 namespace SwiftGet.Media.Recorder;
@@ -53,7 +54,8 @@ public sealed partial class StreamRecorder
             throw new FileNotFoundException("yt-dlp binary is required to record streams.");
         }
 
-        var dir = Path.GetDirectoryName(destinationPath);
+        var resolvedDest = PathResolver.GetPhysicalPath(destinationPath);
+        var dir = Path.GetDirectoryName(resolvedDest);
         if (!string.IsNullOrEmpty(dir))
         {
             Directory.CreateDirectory(dir);
@@ -73,10 +75,10 @@ public sealed partial class StreamRecorder
         args.Add("--no-part");
         args.Add("--no-warnings");
         args.Add("-o");
-        args.Add(destinationPath);
+        args.Add(resolvedDest);
         args.Add(streamUrl);
 
-        _logger.LogInformation("Recording media stream to {DestinationPath}", destinationPath);
+        _logger.LogInformation("Recording media stream to {DestinationPath}", resolvedDest);
 
         var result = await SidecarManager.ExecuteSidecarAsync(
             ytDlpPath,
@@ -87,10 +89,10 @@ public sealed partial class StreamRecorder
 
         if (!result.Success)
         {
-            throw new InvalidOperationException($"Stream recording failed: {SidecarManager.FormatSidecarError(result.StandardError, destinationPath)}");
+            throw new InvalidOperationException($"Stream recording failed: {SidecarManager.FormatSidecarError(result.StandardError, resolvedDest)}");
         }
 
-        return destinationPath;
+        return resolvedDest;
     }
 
     public async Task<string> MuxStreamsAsync(
