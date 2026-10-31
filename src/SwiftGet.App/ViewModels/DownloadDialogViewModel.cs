@@ -18,10 +18,13 @@ public sealed partial class DownloadDialogViewModel : ObservableObject
 
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(DetailsVisibility))]
-    private bool _showDetails = true;
+    [NotifyPropertyChangedFor(nameof(DetailsButtonText))]
+    private bool _showDetails;
 
     public Microsoft.UI.Xaml.Visibility DetailsVisibility =>
         ShowDetails ? Microsoft.UI.Xaml.Visibility.Visible : Microsoft.UI.Xaml.Visibility.Collapsed;
+
+    public string DetailsButtonText => ShowDetails ? "Hide Details" : "Show Details";
 
     [ObservableProperty]
     private int _selectedTabIndex;

@@ -14,11 +14,11 @@
         <Border Grid.Row="0" Background="{ThemeResource CardBackgroundFillColorSecondaryBrush}" Padding="8,6" BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}" BorderThickness="0,0,0,1">
             <Grid>
                 <Grid.ColumnDefinitions>
-                    <ColumnDefinition Width="60" />
-                    <ColumnDefinition Width="100" />
+                    <ColumnDefinition Width="36" />
+                    <ColumnDefinition Width="70" />
                     <ColumnDefinition Width="*" />
-                    <ColumnDefinition Width="100" />
-                    <ColumnDefinition Width="100" />
+                    <ColumnDefinition Width="80" />
+                    <ColumnDefinition Width="80" />
                 </Grid.ColumnDefinitions>
 
                 <TextBlock Grid.Column="0" Text="#" FontWeight="SemiBold" FontSize="12" Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
@@ -40,11 +40,11 @@
                 <DataTemplate x:DataType="vm:SegmentProgressViewModel">
                     <Grid Padding="8,4">
                         <Grid.ColumnDefinitions>
-                            <ColumnDefinition Width="60" />
-                            <ColumnDefinition Width="100" />
+                            <ColumnDefinition Width="36" />
+                            <ColumnDefinition Width="70" />
                             <ColumnDefinition Width="*" />
-                            <ColumnDefinition Width="100" />
-                            <ColumnDefinition Width="100" />
+                            <ColumnDefinition Width="80" />
+                            <ColumnDefinition Width="80" />
                         </Grid.ColumnDefinitions>
 
                         <TextBlock Grid.Column="0" Text="{x:Bind Index}" FontSize="12" VerticalAlignment="Center" />

@@ -37,6 +37,41 @@ public class DownloadDialogViewModelTests
         // Assert toggled
         dialogVm.ShowDetails.Should().BeFalse();
         dialogVm.DetailsVisibility.Should().Be(Visibility.Collapsed);
+        dialogVm.DetailsButtonText.Should().Be("Show Details");
+    }
+
+    [Fact]
+    public void InitialState_IsCompact_AndDetailsButtonTextToggles()
+    {
+        // Arrange
+        var item = new DownloadItemViewModel
+        {
+            Id = Guid.NewGuid(),
+            FileName = "file.zip"
+        };
+
+        var dialogVm = new DownloadDialogViewModel(item);
+
+        // Assert default is compact
+        dialogVm.ShowDetails.Should().BeFalse();
+        dialogVm.DetailsVisibility.Should().Be(Visibility.Collapsed);
+        dialogVm.DetailsButtonText.Should().Be("Show Details");
+
+        // Act: expand
+        dialogVm.ToggleDetailsCommand.Execute(null);
+
+        // Assert expanded
+        dialogVm.ShowDetails.Should().BeTrue();
+        dialogVm.DetailsVisibility.Should().Be(Visibility.Visible);
+        dialogVm.DetailsButtonText.Should().Be("Hide Details");
+
+        // Act: collapse
+        dialogVm.ToggleDetailsCommand.Execute(null);
+
+        // Assert collapsed
+        dialogVm.ShowDetails.Should().BeFalse();
+        dialogVm.DetailsVisibility.Should().Be(Visibility.Collapsed);
+        dialogVm.DetailsButtonText.Should().Be("Show Details");
     }
 
     [Fact]

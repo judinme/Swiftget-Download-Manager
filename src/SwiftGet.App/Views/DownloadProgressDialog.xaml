@@ -7,22 +7,25 @@
     xmlns:vm="using:SwiftGet.App.ViewModels"
     Title="SwiftGet Download Progress">
 
-    <Grid Background="{ThemeResource ApplicationPageBackgroundThemeBrush}" Padding="16">
+    <Grid Background="{ThemeResource ApplicationPageBackgroundThemeBrush}" Padding="14,10,14,12">
         <Grid.RowDefinitions>
             <RowDefinition Height="*" />
             <RowDefinition Height="Auto" />
         </Grid.RowDefinitions>
 
         <!-- 3-Tab Pivot / TabView -->
-        <TabView Grid.Row="0" CanReorderTabs="False" SelectedIndex="{x:Bind ViewModel.SelectedTabIndex, Mode=TwoWay}">
+        <TabView Grid.Row="0" CanReorderTabs="False" IsAddTabButtonVisible="False" SelectedIndex="{x:Bind ViewModel.SelectedTabIndex, Mode=TwoWay}">
             <!-- TAB 1: Download Status -->
             <TabViewItem Header="Download status" IsClosable="False">
-                <ScrollViewer VerticalScrollBarVisibility="Auto" Padding="0,12,0,0">
-                    <StackPanel Spacing="12">
+                <TabViewItem.IconSource>
+                    <FontIconSource Glyph="&#xE896;" />
+                </TabViewItem.IconSource>
+                <ScrollViewer VerticalScrollBarVisibility="Auto" Padding="0,8,0,0">
+                    <StackPanel Spacing="10">
                         <!-- Key-Value Info Grid -->
-                        <Grid ColumnSpacing="16" RowSpacing="6">
+                        <Grid ColumnSpacing="12" RowSpacing="5">
                             <Grid.ColumnDefinitions>
-                                <ColumnDefinition Width="130" />
+                                <ColumnDefinition Width="120" />
                                 <ColumnDefinition Width="*" />
                             </Grid.ColumnDefinitions>
                             <Grid.RowDefinitions>
@@ -59,7 +62,7 @@
 
                         <!-- Overall Standard Progress Bar -->
                         <ProgressBar
-                            Height="12"
+                            Height="10"
                             Minimum="0"
                             Maximum="100"
                             Value="{x:Bind ViewModel.Item.ProgressPercentage, Mode=OneWay}"
@@ -83,7 +86,10 @@
 
             <!-- TAB 2: Speed Limiter -->
             <TabViewItem Header="Speed Limiter" IsClosable="False">
-                <StackPanel Spacing="16" Padding="12,16">
+                <TabViewItem.IconSource>
+                    <FontIconSource Glyph="&#xEC4A;" />
+                </TabViewItem.IconSource>
+                <StackPanel Spacing="14" Padding="12,14">
                     <CheckBox Content="Use Speed Limiter" IsChecked="{x:Bind ViewModel.IsLimiterEnabled, Mode=TwoWay}" />
 
                     <Grid ColumnSpacing="12">
@@ -112,7 +118,10 @@
 
             <!-- TAB 3: Options on Completion -->
             <TabViewItem Header="Options on completion" IsClosable="False">
-                <StackPanel Spacing="12" Padding="12,16">
+                <TabViewItem.IconSource>
+                    <FontIconSource Glyph="&#xE713;" />
+                </TabViewItem.IconSource>
+                <StackPanel Spacing="10" Padding="12,14">
                     <CheckBox Content="Close this dialog when download completes" IsChecked="{x:Bind ViewModel.CloseOnCompletion, Mode=TwoWay}" />
                     <CheckBox Content="Exit SwiftGet after completing this download" IsChecked="{x:Bind ViewModel.ExitAppOnCompletion, Mode=TwoWay}" />
                     <CheckBox Content="Shut down computer after completion" IsChecked="{x:Bind ViewModel.ShutdownOnCompletion, Mode=TwoWay}" />
@@ -122,28 +131,27 @@
         </TabView>
 
         <!-- Dialog Buttons Row -->
-        <Grid Grid.Row="1" Margin="0,12,0,0">
+        <Grid Grid.Row="1" Margin="0,10,0,0">
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="Auto" />
                 <ColumnDefinition Width="*" />
-                <ColumnDefinition Width="Auto" />
                 <ColumnDefinition Width="Auto" />
             </Grid.ColumnDefinitions>
 
             <Button
                 Grid.Column="0"
-                Content="Show/Hide Details"
+                Content="{x:Bind ViewModel.DetailsButtonText, Mode=OneWay}"
                 Command="{x:Bind ViewModel.ToggleDetailsCommand}" />
 
             <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="8">
                 <Button
                     Content="Pause"
                     Command="{x:Bind ViewModel.TogglePauseCommand}"
-                    Width="88" />
+                    Width="80" />
                 <Button
                     Content="Cancel"
                     Click="CancelButton_Click"
-                    Width="88" />
+                    Width="80" />
             </StackPanel>
         </Grid>
     </Grid>
