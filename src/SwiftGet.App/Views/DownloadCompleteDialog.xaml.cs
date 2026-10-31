@@ -33,6 +33,16 @@ public sealed partial class DownloadCompleteDialog : ContentDialog
         {
             DangerousWarningBar.IsOpen = true;
         }
+
+        Loaded += (s, e) =>
+        {
+            try
+            {
+                UrlTextBox.Select(0, 0);
+                SavePathTextBox.Select(0, 0);
+            }
+            catch { }
+        };
     }
 
     private void Open_Click(object sender, RoutedEventArgs e)

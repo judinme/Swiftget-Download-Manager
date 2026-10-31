@@ -539,6 +539,47 @@ public sealed partial class MainWindow : Window
                         }
                     });
                 };
+
+                coordinator.ConnectionsUpdated += (sender, args) =>
+                {
+                    DispatcherQueue.TryEnqueue(() =>
+                    {
+                        var item = ViewModel.AllDownloads.FirstOrDefault(d =>
+                            d.Id.ToString("N").Equals(args.DownloadId, StringComparison.OrdinalIgnoreCase));
+                        if (item != null && args.Connections.Count > 0)
+                        {
+                            for (int i = 0; i < args.Connections.Count; i++)
+                            {
+                                var conn = args.Connections[i];
+                                if (i < item.Segments.Count)
+                                {
+                                    var seg = item.Segments[i];
+                                    seg.Index = conn.Index;
+                                    seg.Status = conn.Status;
+                                    seg.StartOffset = conn.StartOffset;
+                                    seg.EndOffset = conn.EndOffset;
+                                    seg.Update(conn.DownloadedBytes, conn.SpeedBytesPerSec);
+                                    seg.UpdateMetrics(item.TotalBytes);
+                                }
+                                else
+                                {
+                                    var seg = new SegmentProgressViewModel(conn.Index, conn.StartOffset, conn.EndOffset)
+                                    {
+                                        Status = conn.Status
+                                    };
+                                    seg.Update(conn.DownloadedBytes, conn.SpeedBytesPerSec);
+                                    seg.UpdateMetrics(item.TotalBytes);
+                                    item.Segments.Add(seg);
+                                }
+                            }
+
+                            while (item.Segments.Count > args.Connections.Count && item.Segments.Count > 1)
+                            {
+                                item.Segments.RemoveAt(item.Segments.Count - 1);
+                            }
+                        }
+                    });
+                };
             }
         }
         catch (Exception ex)
@@ -1238,7 +1279,7 @@ public sealed partial class MainWindow : Window
                                 Id = Guid.NewGuid(),
                                 Url = addVm.Url,
                                 FileName = fileName,
-                                IsFileNameUserLocked = addVm.UserHasExplicitlyEditedFileName,
+                                IsFileNameUserLocked = true,
                                 SavePath = destPath,
                                 Category = addVm.SelectedCategory,
                                 QueueName = addVm.QueueName,
@@ -1300,7 +1341,7 @@ public sealed partial class MainWindow : Window
             var fileName = string.IsNullOrWhiteSpace(addVm.FileName) ? "download.bin" : addVm.FileName;
             var destPath = addVm.FullSavePath;
             var id = Guid.NewGuid();
-            var isLocked = addVm.UserHasExplicitlyEditedFileName;
+            var isLocked = true; // Confirmed by user in Download File Info dialog
 
             DownloadItemViewModel newItem = new()
             {
@@ -1467,7 +1508,7 @@ public sealed partial class MainWindow : Window
                 var downloadId = !string.IsNullOrWhiteSpace(req.DownloadId) ? req.DownloadId : Guid.NewGuid().ToString("N");
                 var idGuid = Guid.TryParse(downloadId, out var g) ? g : Guid.NewGuid();
 
-                var isLocked = addVm.UserHasExplicitlyEditedFileName;
+                var isLocked = true; // Confirmed by user in Download File Info dialog
 
                 var newItem = new DownloadItemViewModel
                 {

@@ -21,9 +21,12 @@ public class DownloadCoordinator
     private readonly ILogger<DownloadCoordinator> _logger;
 
     public bool ApplyMarkOfTheWeb { get; set; } = true;
+    public bool UseTurboEngine { get; set; } = true;
+    public TimeSpan ProgressReportInterval { get; set; } = TimeSpan.FromMilliseconds(250);
     public SwiftGet.Engine.Security.IAntivirusScanner? AntivirusScanner { get; set; }
 
     public event EventHandler<(string DownloadId, string NewFileName, string NewDestinationPath)>? FileNameUpdated;
+    public event EventHandler<(string DownloadId, IReadOnlyList<SwiftGet.Engine.Turbo.ConnectionSnapshot> Connections)>? ConnectionsUpdated;
 
     public DownloadCoordinator(
         HttpClient httpClient,
@@ -132,7 +135,12 @@ public class DownloadCoordinator
                 var suggestedExt = _fileNameResolver.GetCompoundExtension(probeResult.SuggestedFileName);
                 var suggestedHasRealExt = !string.IsNullOrEmpty(suggestedExt) && !_fileNameResolver.IsGenericOrScriptExtension(suggestedExt);
 
-                if (!item.IsFileNameUserLocked && (isPlaceholder || (isExtensionlessOrGeneric && suggestedHasRealExt) || !string.IsNullOrWhiteSpace(probeResult.ContentDisposition)))
+                // Priority invariant: Only update filename from probe if the current name is a placeholder/generic AND the probe returned a real extension,
+                // OR if a genuine Content-Disposition header with a real extension was returned. Never replace a rich name with an extensionless path-slug!
+                if (!item.IsFileNameUserLocked &&
+                    ((isPlaceholder && (suggestedHasRealExt || !string.IsNullOrWhiteSpace(probeResult.ContentDisposition))) ||
+                     (isExtensionlessOrGeneric && suggestedHasRealExt) ||
+                     (!string.IsNullOrWhiteSpace(probeResult.ContentDisposition) && suggestedHasRealExt && isExtensionlessOrGeneric)))
                 {
                     item.FileName = probeResult.SuggestedFileName;
                     if (!string.IsNullOrWhiteSpace(item.DestinationPath))
@@ -170,20 +178,31 @@ public class DownloadCoordinator
 
             string? liveGetResolvedName = null;
 
-            using var scheduler = new SegmentScheduler(
-                _httpClient,
-                item,
-                writer,
-                _db,
-                maxConnections: item.SupportsRanges ? maxConnections : 1,
-                minSplitSize: minSplitSize,
-                limiter: effectiveLimiter,
-                logger: _logger)
+            using SwiftGet.Engine.Turbo.IDownloadScheduler scheduler = UseTurboEngine
+                ? new SwiftGet.Engine.Turbo.TurboDownloadScheduler(
+                    _httpClient,
+                    item,
+                    writer,
+                    _db,
+                    concurrencyController: new SwiftGet.Engine.Turbo.AdaptiveConcurrencyController(
+                        initialConnections: Math.Min(6, item.SupportsRanges ? maxConnections : 1),
+                        maxConnections: item.SupportsRanges ? maxConnections : 1),
+                    limiter: effectiveLimiter,
+                    logger: _logger)
+                : new SegmentScheduler(
+                    _httpClient,
+                    item,
+                    writer,
+                    _db,
+                    maxConnections: item.SupportsRanges ? maxConnections : 1,
+                    minSplitSize: minSplitSize,
+                    limiter: effectiveLimiter,
+                    logger: _logger);
+
+            scheduler.OnFirstChunkRead = (resp, sample) =>
             {
-                OnFirstChunkRead = (resp, sample) =>
+                try
                 {
-                    try
-                    {
                         string? rawCd = null;
                         if (resp.Content.Headers.TryGetValues("Content-Disposition", out var cdVals))
                         {
@@ -210,7 +229,15 @@ public class DownloadCoordinator
                         var isCurrentGeneric = string.IsNullOrEmpty(currentExt) || _fileNameResolver.IsGenericOrScriptExtension(currentExt);
                         var isNewReal = !string.IsNullOrEmpty(resolved.Extension) && !_fileNameResolver.IsGenericOrScriptExtension(resolved.Extension);
 
-                        if (!string.IsNullOrWhiteSpace(rawCd) || (isCurrentGeneric && isNewReal))
+                        // Only accept live GET re-resolution if:
+                        // 1. Name is NOT locked by the user.
+                        // 2. The resolution came from a genuine Content-Disposition header with a valid filename, OR fixed a generic/extensionless filename with a real extension.
+                        // 3. Crucially: NEVER replace a name that has a valid extension with an extensionless or generic name!
+                        if (!item.IsFileNameUserLocked &&
+                            resolved.Source == FileNameSource.ContentDisposition &&
+                            !string.IsNullOrWhiteSpace(resolved.FileName) &&
+                            (isCurrentGeneric || isNewReal) &&
+                            !(string.IsNullOrEmpty(resolved.Extension) && !string.IsNullOrEmpty(currentExt)))
                         {
                             liveGetResolvedName = resolved.FileName;
                         }
@@ -219,8 +246,7 @@ public class DownloadCoordinator
                     {
                         // Non-fatal inspection
                     }
-                }
-            };
+                };
 
             using (var progressCts = CancellationTokenSource.CreateLinkedTokenSource(ct))
             {
@@ -235,7 +261,9 @@ public class DownloadCoordinator
                             {
                                 item.DownloadedBytes = scheduler.DownloadedBytes;
                                 progress.Report(item.DownloadedBytes);
-                                await Task.Delay(500, progressCts.Token).ConfigureAwait(false);
+                                var conns = scheduler.GetConnectionSnapshots();
+                                ConnectionsUpdated?.Invoke(this, (item.Id, conns));
+                                await Task.Delay(ProgressReportInterval, progressCts.Token).ConfigureAwait(false);
                             }
                         }
                         catch (OperationCanceledException)
@@ -276,7 +304,12 @@ public class DownloadCoordinator
 
                     if (!item.IsFileNameUserLocked && !string.IsNullOrWhiteSpace(liveGetResolvedName) && !liveGetResolvedName.Equals(item.FileName, StringComparison.OrdinalIgnoreCase))
                     {
-                        targetFileName = liveGetResolvedName;
+                        var resolvedExt = _fileNameResolver.GetCompoundExtension(liveGetResolvedName);
+                        var resolvedHasRealExt = !string.IsNullOrEmpty(resolvedExt) && !_fileNameResolver.IsGenericOrScriptExtension(resolvedExt);
+                        if (isCurrentGeneric || resolvedHasRealExt)
+                        {
+                            targetFileName = liveGetResolvedName;
+                        }
                     }
                     else if (isCurrentGeneric)
                     {

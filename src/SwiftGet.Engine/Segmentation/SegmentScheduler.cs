@@ -6,9 +6,11 @@ using SwiftGet.Core.Storage;
 using SwiftGet.Engine.IO;
 using SwiftGet.Engine.Throttling;
 
+using SwiftGet.Engine.Turbo;
+
 namespace SwiftGet.Engine.Segmentation;
 
-public class SegmentScheduler : IDisposable
+public class SegmentScheduler : IDownloadScheduler
 {
     private readonly HttpClient _httpClient;
     private readonly DownloadItem _item;
@@ -26,6 +28,44 @@ public class SegmentScheduler : IDisposable
     private long _downloadedBytes;
 
     public Action<HttpResponseMessage, byte[]>? OnFirstChunkRead { get; set; }
+
+    public int ActiveConnections
+    {
+        get
+        {
+            lock (_segmentsSync)
+            {
+                return _segments.Count(s => !s.IsComplete);
+            }
+        }
+    }
+
+    public IReadOnlyList<ConnectionSnapshot> GetConnectionSnapshots()
+    {
+        lock (_segmentsSync)
+        {
+            if (_segments.Count == 0)
+            {
+                return [new ConnectionSnapshot(1, "Ready", 0, Math.Max(0, _item.TotalBytes - 1), DownloadedBytes, 0)];
+            }
+
+            return _segments.Select(s => new ConnectionSnapshot(
+                Index: s.SegmentIndex,
+                Status: s.IsComplete ? "Complete" : (s.DownloadedBytes > 0 ? "Receiving" : "Ready"),
+                StartOffset: s.StartOffset,
+                EndOffset: s.EndOffset,
+                DownloadedBytes: s.DownloadedBytes,
+                SpeedBytesPerSec: 0)).ToList();
+        }
+    }
+
+    public CapacityEstimate CurrentCapacity => new(
+        EstimatedBtlBwBytesPerSec: 0,
+        MinRtProp: TimeSpan.Zero,
+        CurrentThroughputBytesPerSec: 0,
+        Bottleneck: BottleneckType.Probing,
+        AdapterSpeedBytesPerSec: 0,
+        BottleneckDescription: "Legacy Segment Scheduler");
 
     public IReadOnlyList<DownloadSegment> Segments
     {
