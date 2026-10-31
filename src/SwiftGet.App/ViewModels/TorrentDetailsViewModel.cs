@@ -87,6 +87,9 @@ public sealed partial class TorrentDetailsViewModel : ObservableObject, IDisposa
     [ObservableProperty]
     private string _statusMessage = "Ready";
 
+    [ObservableProperty]
+    private string _logText = string.Empty;
+
     public ObservableCollection<TorrentFileItemViewModel> Files { get; } = [];
     public ObservableCollection<TorrentPeerDisplayItem> Peers { get; } = [];
     public ObservableCollection<TorrentTrackerInfo> Trackers { get; } = [];
@@ -112,6 +115,13 @@ public sealed partial class TorrentDetailsViewModel : ObservableObject, IDisposa
 
     public async Task InitializeAsync()
     {
+        _torrentEngine.LogReceived += OnLogReceived;
+        var recent = _torrentEngine.GetRecentLogs(JobId, 200);
+        if (recent.Count > 0)
+        {
+            LogText = string.Join(Environment.NewLine, recent.Select(r => r.ToString()));
+        }
+
         await RefreshAllStatsAsync().ConfigureAwait(false);
         StartPolling();
     }
@@ -360,12 +370,52 @@ public sealed partial class TorrentDetailsViewModel : ObservableObject, IDisposa
     }
 
     [RelayCommand]
-    public void ToggleSequential()
+    public async Task ForceAnnounceAsync()
+    {
+        try
+        {
+            await _torrentEngine.ForceAnnounceAsync(JobId).ConfigureAwait(false);
+            StatusMessage = "Announced to all trackers.";
+            await RefreshAllStatsAsync().ConfigureAwait(false);
+        }
+        catch (Exception ex)
+        {
+            StatusMessage = $"Announce failed: {ex.Message}";
+        }
+    }
+
+    [RelayCommand]
+    public async Task AddTrackerAsync(string trackerUrl)
+    {
+        if (Uri.TryCreate(trackerUrl?.Trim(), UriKind.Absolute, out var uri))
+        {
+            try
+            {
+                await _torrentEngine.AddTrackerAsync(JobId, uri).ConfigureAwait(false);
+                StatusMessage = $"Added tracker {uri}";
+                await RefreshAllStatsAsync().ConfigureAwait(false);
+            }
+            catch (Exception ex)
+            {
+                StatusMessage = $"Failed to add tracker: {ex.Message}";
+            }
+        }
+    }
+
+    [RelayCommand]
+    public async Task ToggleSequentialAsync()
     {
         SequentialMode = !SequentialMode;
         Item.IsSequential = SequentialMode;
+        try
+        {
+            await _torrentEngine.SetSequentialDownloadAsync(JobId, SequentialMode).ConfigureAwait(false);
+        }
+        catch { }
         StatusMessage = $"Sequential downloading is now {(SequentialMode ? "enabled" : "disabled")}";
     }
+
+    public void ToggleSequential() => _ = ToggleSequentialAsync();
 
     [RelayCommand]
     public void CopyMagnetUri()
@@ -413,10 +463,65 @@ public sealed partial class TorrentDetailsViewModel : ObservableObject, IDisposa
         return string.Format(CultureInfo.InvariantCulture, "{0:0.##} MB/s", speed / (1024.0 * 1024.0));
     }
 
+    [RelayCommand]
+    private void CopyLogs()
+    {
+        try
+        {
+            var package = new Windows.ApplicationModel.DataTransfer.DataPackage();
+            package.SetText(LogText);
+            Windows.ApplicationModel.DataTransfer.Clipboard.SetContent(package);
+            StatusMessage = "Logs copied to clipboard.";
+        }
+        catch (Exception ex)
+        {
+            StatusMessage = $"Failed to copy logs: {ex.Message}";
+        }
+    }
+
+    [RelayCommand]
+    private async Task ExportLogsAsync()
+    {
+        try
+        {
+            var downloadsDir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "Downloads");
+            if (!Directory.Exists(downloadsDir)) Directory.CreateDirectory(downloadsDir);
+            var safeName = string.Join("_", TorrentName.Split(Path.GetInvalidFileNameChars(), StringSplitOptions.RemoveEmptyEntries));
+            if (safeName.Length > 30) safeName = safeName[..30];
+            var path = Path.Combine(downloadsDir, $"{safeName}_Log_{DateTime.Now:yyyyMMdd_HHmmss}.txt");
+            await _torrentEngine.ExportLogsAsync(path, JobId).ConfigureAwait(false);
+            StatusMessage = $"Logs exported to {Path.GetFileName(path)}";
+        }
+        catch (Exception ex)
+        {
+            StatusMessage = $"Export failed: {ex.Message}";
+        }
+    }
+
+    [RelayCommand]
+    private void ClearLogs()
+    {
+        LogText = string.Empty;
+        StatusMessage = "Log view cleared.";
+    }
+
+    private void OnLogReceived(object? sender, TorrentLogEventArgs e)
+    {
+        if (string.IsNullOrWhiteSpace(e.Entry.JobId) || string.Equals(e.Entry.JobId, JobId, StringComparison.OrdinalIgnoreCase))
+        {
+            _ = App.CurrentWindow?.DispatcherQueue?.TryEnqueue(() =>
+            {
+                var entryStr = e.Entry.ToString();
+                LogText = string.IsNullOrEmpty(LogText) ? entryStr : LogText + Environment.NewLine + entryStr;
+            });
+        }
+    }
+
     public void Dispose()
     {
         if (_isDisposed) return;
         _isDisposed = true;
+        _torrentEngine.LogReceived -= OnLogReceived;
         StopPolling();
         GC.SuppressFinalize(this);
     }
@@ -494,6 +599,7 @@ public sealed class TorrentPeerDisplayItem
     public string Flags { get; }
     public string EncryptionText { get; }
     public string ProtocolText { get; }
+    public string ProgressText { get; }
 
     public TorrentPeerDisplayItem(TorrentPeerInfo peer)
     {
@@ -504,6 +610,7 @@ public sealed class TorrentPeerDisplayItem
         Flags = string.IsNullOrWhiteSpace(peer.Flags) ? "-" : peer.Flags;
         EncryptionText = peer.IsEncrypted ? "Encrypted" : "Plain";
         ProtocolText = peer.IsUtp ? "uTP" : "TCP";
+        ProgressText = $"{peer.ProgressPercentage:0.#}%";
     }
 }
 

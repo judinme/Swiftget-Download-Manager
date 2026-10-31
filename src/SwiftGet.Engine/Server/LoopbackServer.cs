@@ -7,7 +7,9 @@ using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
+using SwiftGet.Core;
 using SwiftGet.Core.Models;
+using SwiftGet.Core.IO;
 using SwiftGet.Core.Storage;
 using SwiftGet.Engine.Categories;
 using SwiftGet.Engine.IO;
@@ -20,10 +22,11 @@ namespace SwiftGet.Engine.Server;
 public sealed class LoopbackServer : IAsyncDisposable
 {
     public const int DefaultPort = 52384;
-    private readonly HttpListener _listener;
+    private HttpListener _listener;
     private readonly LoopbackTokenManager _tokenManager;
     private readonly ISwiftGetDatabase? _db;
     private readonly ICategoryManager? _categoryManager;
+    private readonly IFileNameResolver _fileNameResolver;
     private readonly ILogger<LoopbackServer> _logger;
     private CancellationTokenSource? _cts;
     private Task? _listenTask;
@@ -38,12 +41,14 @@ public sealed class LoopbackServer : IAsyncDisposable
         LoopbackTokenManager tokenManager,
         ISwiftGetDatabase? db = null,
         ICategoryManager? categoryManager = null,
+        IFileNameResolver? fileNameResolver = null,
         int port = DefaultPort,
         ILogger<LoopbackServer>? logger = null)
     {
         _tokenManager = tokenManager ?? throw new ArgumentNullException(nameof(tokenManager));
         _db = db;
         _categoryManager = categoryManager;
+        _fileNameResolver = fileNameResolver ?? new SwiftGet.Core.IO.FileNameResolver();
         _logger = logger ?? NullLogger<LoopbackServer>.Instance;
         Port = port;
 
@@ -66,11 +71,12 @@ public sealed class LoopbackServer : IAsyncDisposable
         {
             _listener.Start();
         }
-        catch (HttpListenerException)
+        catch (Exception)
         {
-            // If port is busy or failed, fallback to new dynamic port
+            // If port is busy or failed, recreate fresh listener on a new dynamic port
+            try { _listener.Close(); } catch { }
+            _listener = new HttpListener();
             Port = GetRandomAvailablePort();
-            _listener.Prefixes.Clear();
             _listener.Prefixes.Add($"http://127.0.0.1:{Port}/");
             _listener.Start();
         }
@@ -374,18 +380,20 @@ public sealed class LoopbackServer : IAsyncDisposable
         var downloadId = Guid.NewGuid().ToString("N");
         interceptReq.DownloadId = downloadId;
 
-        if (string.IsNullOrWhiteSpace(rawFileName) && Uri.TryCreate(interceptReq.Url, UriKind.Absolute, out var uri))
+        if (string.IsNullOrWhiteSpace(rawFileName))
         {
-            rawFileName = Path.GetFileName(uri.LocalPath);
+            rawFileName = _fileNameResolver.ResolveInitialCandidate(interceptReq.Url ?? string.Empty);
         }
 
         var fallbackFileName = isTorrent ? "torrent_" + downloadId[..8] + ".torrent" : "download_" + downloadId[..8] + ".bin";
-        var fileName = FileNameSanitizer.Sanitize(rawFileName ?? string.Empty, fallbackFileName);
+        var fileName = _fileNameResolver.SanitizeFileName(rawFileName ?? string.Empty, fallbackFileName);
+        bool isMedia = !isTorrent && !string.IsNullOrWhiteSpace(interceptReq.Url) && UrlMediaDetector.IsStreamingMediaPlatformUrl(interceptReq.Url);
+        JobKind jobKind = isTorrent ? JobKind.Torrent : (isMedia ? JobKind.Media : JobKind.Http);
 
         if (_db != null && _categoryManager != null)
         {
             var category = _categoryManager.ResolveCategory(fileName);
-            var categoryId = isTorrent ? "Torrents" : category.Id;
+            var categoryId = isTorrent ? "Torrents" : (isMedia ? "video" : category.Id);
             if (!string.IsNullOrWhiteSpace(interceptReq.CategoryId))
             {
                 var categories = await _categoryManager.GetCategoriesAsync(ct).ConfigureAwait(false);
@@ -410,26 +418,31 @@ public sealed class LoopbackServer : IAsyncDisposable
             string candidateName = fileName;
             if (!string.IsNullOrWhiteSpace(interceptReq.DestinationPath))
             {
-                var destName = Path.GetFileName(interceptReq.DestinationPath);
+                var destName = _fileNameResolver.SanitizeFileName(interceptReq.DestinationPath);
                 if (!string.IsNullOrWhiteSpace(destName))
                 {
-                    candidateName = FileNameSanitizer.Sanitize(destName, fileName);
+                    candidateName = _fileNameResolver.SanitizeFileName(destName, fileName);
                 }
             }
 
             var targetDir = Environment.ExpandEnvironmentVariables(category.TargetDirectory);
             var destPath = PathTraversalGuard.EnsureSafePath(targetDir, candidateName, fileName);
+            interceptReq.FileName = fileName;
+            interceptReq.DestinationPath = destPath;
 
             var item = new DownloadItem
             {
                 Id = downloadId,
-                JobKind = isTorrent ? JobKind.Torrent : JobKind.Http,
+                JobKind = jobKind,
                 InfoHash = infoHash,
-                Url = interceptReq.Url,
+                Url = interceptReq.Url ?? string.Empty,
                 FileName = fileName,
                 DestinationPath = destPath,
                 CategoryId = categoryId,
                 QueueId = queueId,
+                CookiesJson = interceptReq.Cookies,
+                Referrer = interceptReq.Referrer,
+                UserAgent = interceptReq.UserAgent,
                 Status = DownloadStatus.Queued,
                 CreatedAtUtc = DateTime.UtcNow
             };
@@ -500,12 +513,12 @@ public sealed class LoopbackServer : IAsyncDisposable
             ct.ThrowIfCancellationRequested();
             if (!string.IsNullOrWhiteSpace(item.FileName))
             {
-                item.FileName = FileNameSanitizer.Sanitize(item.FileName);
+                item.FileName = _fileNameResolver.SanitizeFileName(item.FileName);
             }
             if (!string.IsNullOrWhiteSpace(item.DestinationPath))
             {
-                var destName = Path.GetFileName(item.DestinationPath);
-                item.DestinationPath = FileNameSanitizer.Sanitize(destName, item.FileName ?? "download.bin");
+                var destName = _fileNameResolver.SanitizeFileName(item.DestinationPath);
+                item.DestinationPath = _fileNameResolver.SanitizeFileName(destName, item.FileName ?? "download.bin");
             }
             DownloadIntercepted?.Invoke(this, item);
             count++;

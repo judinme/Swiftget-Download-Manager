@@ -31,6 +31,7 @@ public interface IClipboardMonitor
 public sealed partial class ClipboardMonitor : IClipboardMonitor
 {
     private readonly ICategoryManager _categoryManager;
+    private readonly SwiftGet.Core.IO.IFileNameResolver _fileNameResolver;
     private string? _lastProcessedUrl;
     private readonly HashSet<string> _excludedDomains = new(StringComparer.OrdinalIgnoreCase)
     {
@@ -40,13 +41,20 @@ public sealed partial class ClipboardMonitor : IClipboardMonitor
     [GeneratedRegex(@"https?://[^\s""'<>]+", RegexOptions.IgnoreCase)]
     private static partial Regex UrlRegex();
 
+    [GeneratedRegex(@"magnet:\?xt=urn:btih:[a-zA-Z0-9]+[^\s""'<>]*", RegexOptions.IgnoreCase)]
+    private static partial Regex MagnetRegex();
+
+    [GeneratedRegex(@"dn=([^&]+)", RegexOptions.IgnoreCase)]
+    private static partial Regex DisplayNameRegex();
+
     public bool IsEnabled { get; set; } = true;
 
     public event EventHandler<ClipboardUrlDetectedEventArgs>? UrlDetected;
 
-    public ClipboardMonitor(ICategoryManager categoryManager)
+    public ClipboardMonitor(ICategoryManager categoryManager, SwiftGet.Core.IO.IFileNameResolver? fileNameResolver = null)
     {
         _categoryManager = categoryManager ?? throw new ArgumentNullException(nameof(categoryManager));
+        _fileNameResolver = fileNameResolver ?? new SwiftGet.Core.IO.FileNameResolver();
     }
 
     public void ProcessClipboardText(string? text)
@@ -56,6 +64,41 @@ public sealed partial class ClipboardMonitor : IClipboardMonitor
             return;
         }
 
+        // 1. Check for Magnet Links
+        var magnetMatches = MagnetRegex().Matches(text);
+        foreach (Match match in magnetMatches)
+        {
+            var rawMagnet = match.Value.Trim();
+            if (string.Equals(rawMagnet, _lastProcessedUrl, StringComparison.OrdinalIgnoreCase))
+            {
+                continue;
+            }
+
+            _lastProcessedUrl = rawMagnet;
+            string displayName = "Torrent";
+            var dnMatch = DisplayNameRegex().Match(rawMagnet);
+            if (dnMatch.Success)
+            {
+                displayName = Uri.UnescapeDataString(dnMatch.Groups[1].Value).Replace('+', ' ');
+            }
+
+            var category = _categoryManager.ResolveCategory(displayName.EndsWith(".torrent", StringComparison.OrdinalIgnoreCase) ? displayName : $"{displayName}.torrent");
+            if (string.Equals(category.Name, "General", StringComparison.OrdinalIgnoreCase))
+            {
+                category = new CategoryRule
+                {
+                    Id = "torrents",
+                    Name = "Torrents",
+                    TargetDirectory = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "Downloads"),
+                    FileExtensions = "torrent",
+                    IconKey = "Torrent"
+                };
+            }
+            UrlDetected?.Invoke(this, new ClipboardUrlDetectedEventArgs(rawMagnet, displayName, category));
+            return;
+        }
+
+        // 2. Check for HTTP/HTTPS URLs
         var matches = UrlRegex().Matches(text);
         foreach (Match match in matches)
         {
@@ -75,8 +118,8 @@ public sealed partial class ClipboardMonitor : IClipboardMonitor
                 continue;
             }
 
-            var fileName = Path.GetFileName(uri.LocalPath);
-            var ext = Path.GetExtension(fileName);
+            var fileName = _fileNameResolver.ResolveInitialCandidate(rawUrl);
+            var ext = _fileNameResolver.GetCompoundExtension(fileName);
 
             // A downloadable link should either have a recognized file extension or be a file resource
             if (string.IsNullOrEmpty(ext) || ext.Equals(".html", StringComparison.OrdinalIgnoreCase) || ext.Equals(".htm", StringComparison.OrdinalIgnoreCase))
@@ -86,6 +129,17 @@ public sealed partial class ClipboardMonitor : IClipboardMonitor
 
             _lastProcessedUrl = rawUrl;
             var category = _categoryManager.ResolveCategory(fileName);
+            if (string.Equals(category.Name, "General", StringComparison.OrdinalIgnoreCase) && ext.Equals(".torrent", StringComparison.OrdinalIgnoreCase))
+            {
+                category = new CategoryRule
+                {
+                    Id = "torrents",
+                    Name = "Torrents",
+                    TargetDirectory = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "Downloads"),
+                    FileExtensions = "torrent",
+                    IconKey = "Torrent"
+                };
+            }
             UrlDetected?.Invoke(this, new ClipboardUrlDetectedEventArgs(rawUrl, fileName, category));
         }
     }

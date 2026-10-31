@@ -51,6 +51,48 @@ document.addEventListener("DOMContentLoaded", async () => {
     api.runtime.openOptionsPage();
   });
 
+  const grabLinksBtn = document.getElementById("grab-links-btn");
+  grabLinksBtn?.addEventListener("click", async () => {
+    try {
+      const tabs = await api.tabs.query({ active: true, currentWindow: true });
+      if (!tabs || tabs.length === 0 || !tabs[0].id) return;
+      const tab = tabs[0];
+      grabLinksBtn.textContent = "Scanning links...";
+      grabLinksBtn.disabled = true;
+
+      api.tabs.sendMessage(tab.id, { type: "GATHER_ALL_LINKS" }, async (response) => {
+        if (response && response.links && response.links.length > 0) {
+          grabLinksBtn.textContent = `Found ${response.links.length} links! Sending...`;
+          for (const link of response.links) {
+            if (link.url.startsWith("magnet:?")) {
+              api.runtime.sendMessage({ type: "INTERCEPT_MAGNET", url: link.url });
+            } else if (link.url.toLowerCase().endsWith(".torrent") || link.url.toLowerCase().includes(".torrent?")) {
+              api.runtime.sendMessage({ type: "INTERCEPT_TORRENT_LINK", url: link.url, text: link.text });
+            } else {
+              api.runtime.sendMessage({ type: "FORCE_INTERCEPT_LINK", url: link.url, text: link.text });
+            }
+          }
+          setTimeout(() => {
+            grabLinksBtn.textContent = "Download Links on Page";
+            grabLinksBtn.disabled = false;
+          }, 1800);
+        } else {
+          grabLinksBtn.textContent = "No downloadable links found";
+          setTimeout(() => {
+            grabLinksBtn.textContent = "Download Links on Page";
+            grabLinksBtn.disabled = false;
+          }, 1500);
+        }
+      });
+    } catch {
+      grabLinksBtn.textContent = "Cannot scan this page";
+      setTimeout(() => {
+        grabLinksBtn.textContent = "Download Links on Page";
+        grabLinksBtn.disabled = false;
+      }, 1500);
+    }
+  });
+
   // Check Native Host connection
   try {
     api.runtime.sendMessage({ type: "CHECK_CONNECTION" }, (response) => {

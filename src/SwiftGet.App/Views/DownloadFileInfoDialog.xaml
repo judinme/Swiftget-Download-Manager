@@ -17,6 +17,7 @@
             <RowDefinition Height="Auto" />
             <RowDefinition Height="Auto" />
             <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
         </Grid.RowDefinitions>
 
         <!-- Row 0: URL (Full width) -->
@@ -60,26 +61,39 @@
             </Border>
         </Grid>
 
-        <!-- Row 2: Save As (Consistent right edge flush with URL and Description) -->
+        <!-- Row 2: File Name (Editable, authoritative) -->
         <Grid Grid.Row="2">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="80" />
+                <ColumnDefinition Width="*" />
+            </Grid.ColumnDefinitions>
+            <TextBlock Grid.Column="0" Text="File Name" VerticalAlignment="Center" FontWeight="SemiBold"
+                       Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+            <TextBox Grid.Column="1" Text="{x:Bind ViewModel.FileName, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                     VerticalAlignment="Center"
+                     ToolTipService.ToolTip="{x:Bind ViewModel.FileName, Mode=OneWay}"
+                     AutomationProperties.Name="File Name" />
+        </Grid>
+
+        <!-- Row 3: Save To Directory -->
+        <Grid Grid.Row="3">
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="80" />
                 <ColumnDefinition Width="*" />
                 <ColumnDefinition Width="Auto" />
             </Grid.ColumnDefinitions>
-            <TextBlock Grid.Column="0" Text="Save As" VerticalAlignment="Center" FontWeight="SemiBold"
+            <TextBlock Grid.Column="0" Text="Save To" VerticalAlignment="Center" FontWeight="SemiBold"
                        Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
-            <TextBox Grid.Column="1" Text="{x:Bind ViewModel.FullSavePath, Mode=OneWay}"
-                     IsReadOnly="True"
+            <TextBox Grid.Column="1" Text="{x:Bind ViewModel.SaveDirectory, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
                      VerticalAlignment="Center"
                      ToolTipService.ToolTip="{x:Bind ViewModel.FullSavePath, Mode=OneWay}"
-                     AutomationProperties.Name="Full Save Path" />
+                     AutomationProperties.Name="Save Folder" />
             <Button Grid.Column="2" Content="..." Margin="8,0,0,0" Width="36" Click="BrowseFolder_Click"
                     AutomationProperties.Name="Browse Save Folder" />
         </Grid>
 
-        <!-- Row 3: Framed Box for Remember Path (Full width, clear description) -->
-        <Border Grid.Row="3" Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+        <!-- Row 4: Framed Box for Remember Path (Full width, clear description) -->
+        <Border Grid.Row="4" Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
                 BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
                 BorderThickness="1" CornerRadius="6" Padding="12,10">
             <StackPanel Spacing="6">
@@ -94,8 +108,8 @@
             </StackPanel>
         </Border>
 
-        <!-- Row 4: Description (Full width flush with other rows) -->
-        <Grid Grid.Row="4">
+        <!-- Row 5: Description (Full width flush with other rows) -->
+        <Grid Grid.Row="5">
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="80" />
                 <ColumnDefinition Width="*" />

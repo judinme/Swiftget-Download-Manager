@@ -82,4 +82,26 @@ public sealed class SidecarCommandInjectionTests
             try { Directory.Delete(tempDir, true); } catch { }
         }
     }
+
+    [Fact]
+    public void ResolveProducedOutputPath_HandlesAppendedOrReplacedContainerExtension()
+    {
+        var tempDir = Path.Combine(Path.GetTempPath(), "swiftget_mux_ext_" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(tempDir);
+        try
+        {
+            var expectedMp4 = Path.Combine(tempDir, "video_stream.mp4");
+            var appendedMkv = expectedMp4 + ".mkv";
+            File.WriteAllBytes(appendedMkv, [0x1A, 0x45, 0xDF, 0xA3]);
+
+            var resolved = StreamRecorder.ResolveProducedOutputPath(expectedMp4);
+            resolved.Should().Be(Path.Combine(tempDir, "video_stream.mkv"));
+            File.Exists(resolved).Should().BeTrue();
+            File.Exists(appendedMkv).Should().BeFalse();
+        }
+        finally
+        {
+            try { Directory.Delete(tempDir, true); } catch { }
+        }
+    }
 }

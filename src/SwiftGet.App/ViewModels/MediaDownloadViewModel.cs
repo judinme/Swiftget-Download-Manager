@@ -87,6 +87,16 @@ public sealed partial class MediaDownloadViewModel : ObservableObject
     [ObservableProperty]
     private DownloadItem? _lastEnqueuedItem;
 
+    /// <summary>
+    /// Optional pre-created download ID (e.g. from browser extension interception) to update in-place instead of creating a duplicate row.
+    /// </summary>
+    public string? ExistingDownloadId { get; set; }
+
+    /// <summary>
+    /// The yt-dlp format selector computed from the user's selected format at the time of enqueueing.
+    /// </summary>
+    public string? LastSelectedFormatSelector { get; private set; }
+
     public Visibility DrmNoticeVisibility => IsDrmProtected ? Visibility.Visible : Visibility.Collapsed;
     public Visibility ContentVisibility => (!IsDrmProtected && !HasError) ? Visibility.Visible : Visibility.Collapsed;
     public bool CanDownload => !IsProbing && !IsDrmProtected && !HasError && SelectedFormat != null && Formats.Count > 0;
@@ -265,9 +275,16 @@ public sealed partial class MediaDownloadViewModel : ObservableObject
         targetDir = PathResolver.GetPhysicalPath(targetDir);
         var destPath = Path.Combine(targetDir, cleanName);
 
+        var itemId = !string.IsNullOrWhiteSpace(ExistingDownloadId)
+            ? ExistingDownloadId!
+            : Guid.NewGuid().ToString("N");
+        ExistingDownloadId = null;
+
+        LastSelectedFormatSelector = BuildFormatSelector(SelectedFormat);
+
         var item = new DownloadItem
         {
-            Id = Guid.NewGuid().ToString("N"),
+            Id = itemId,
             JobKind = JobKind.Media,
             Url = MediaUrl,
             FileName = cleanName,
@@ -283,5 +300,26 @@ public sealed partial class MediaDownloadViewModel : ObservableObject
         LastEnqueuedItem = item;
         StatusMessage = $"Enqueued {cleanName} to queue '{item.QueueId}'.";
         return item;
+    }
+
+    private static string BuildFormatSelector(MediaFormat format)
+    {
+        if (string.IsNullOrWhiteSpace(format.FormatId) ||
+            string.Equals(format.FormatId, "best", StringComparison.OrdinalIgnoreCase))
+        {
+            return "bv*+ba/b";
+        }
+
+        if (format.HasVideo && !format.HasAudio)
+        {
+            return $"{format.FormatId}+ba/{format.FormatId}/bv*+ba/b";
+        }
+
+        if (!format.HasVideo && format.HasAudio)
+        {
+            return $"{format.FormatId}/ba/b";
+        }
+
+        return $"{format.FormatId}/bv*+ba/b";
     }
 }

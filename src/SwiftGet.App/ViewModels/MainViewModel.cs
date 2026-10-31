@@ -124,6 +124,12 @@ public sealed partial class MainViewModel : ObservableObject
     public void AddDownload(DownloadItemViewModel item)
     {
         ArgumentNullException.ThrowIfNull(item);
+        var existing = _masterList.FirstOrDefault(x => x.Id == item.Id);
+        if (existing != null)
+        {
+            _masterList.Remove(existing);
+            FilteredDownloads.Remove(existing);
+        }
         _masterList.Add(item);
         UpdateMetrics();
 
@@ -214,22 +220,9 @@ public sealed partial class MainViewModel : ObservableObject
 
         ActiveDownloadsCount = active;
 
-        if (speed <= 0)
-        {
-            TotalTransferRate = "-";
-        }
-        else if (speed < 1024)
-        {
-            TotalTransferRate = $"{speed:0} B/s";
-        }
-        else if (speed < 1024 * 1024)
-        {
-            TotalTransferRate = string.Format(CultureInfo.InvariantCulture, "{0:0.#} KB/s", speed / 1024.0);
-        }
-        else
-        {
-            TotalTransferRate = string.Format(CultureInfo.InvariantCulture, "{0:0.##} MB/s", speed / (1024.0 * 1024.0));
-        }
+        TotalTransferRate = speed > 0
+            ? DownloadItemViewModel.FormatSpeed(speed)
+            : (active > 0 ? "0 B/s" : "-");
 
         UpdateCategoryCounts();
     }
@@ -337,6 +330,10 @@ public sealed partial class MainViewModel : ObservableObject
             {
                 await _db.DeleteDownloadAsync(d.Id.ToString("N"));
             }
+        }
+        if (SelectedItem != null && !_masterList.Contains(SelectedItem))
+        {
+            SelectedItem = null;
         }
 
         UpdateMetrics();

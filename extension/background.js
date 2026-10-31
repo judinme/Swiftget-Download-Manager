@@ -13,27 +13,31 @@ const DEFAULT_EXTENSIONS = [
 ];
 
 const DEFAULT_BLACKLIST = [
-  "google.com", "accounts.google.com", "apis.google.com", "gstatic.com",
+  "accounts.google.com", "apis.google.com", "gstatic.com",
   "bing.com", "duckduckgo.com", "yahoo.com",
-  "live.com", "login.live.com", "microsoft.com", "login.microsoftonline.com",
-  "apple.com", "icloud.com",
+  "live.com", "login.live.com", "login.microsoftonline.com",
+  "icloud.com",
   "facebook.com", "twitter.com", "x.com", "instagram.com", "linkedin.com",
-  "netflix.com", "spotify.com", "github.com",
+  "netflix.com", "spotify.com",
   "bankofamerica.com", "chase.com", "wellsfargo.com", "paypal.com", "stripe.com"
 ];
 
 // Initialize default settings on install
 chrome.runtime.onInstalled.addListener(async () => {
-  const current = await chrome.storage.local.get(["interceptionEnabled", "interceptTorrents", "extensions", "blacklist", "altKeyBypass", "insertKeyForce"]);
+  const current = await chrome.storage.local.get(["interceptionEnabled", "interceptTorrents", "snifferEnabled", "extensions", "blacklist", "altKeyBypass", "insertKeyForce"]);
   if (current.interceptionEnabled === undefined) {
     await chrome.storage.local.set({
       interceptionEnabled: true,
       interceptTorrents: true,
+      snifferEnabled: true,
       altKeyBypass: true,
       insertKeyForce: true,
       extensions: DEFAULT_EXTENSIONS,
       blacklist: DEFAULT_BLACKLIST
     });
+  } else if (Array.isArray(current.blacklist) && current.blacklist.includes("github.com") && current.blacklist.includes("microsoft.com")) {
+    const cleaned = current.blacklist.filter(d => !["github.com", "microsoft.com", "google.com", "apple.com"].includes(d));
+    await chrome.storage.local.set({ blacklist: cleaned });
   }
 
   // Create context menus
@@ -42,6 +46,12 @@ chrome.runtime.onInstalled.addListener(async () => {
       id: "swiftget_download_link",
       title: "Download with SwiftGet",
       contexts: ["link"]
+    });
+
+    chrome.contextMenus.create({
+      id: "swiftget_download_selected",
+      title: "Download selected links with SwiftGet",
+      contexts: ["selection"]
     });
 
     chrome.contextMenus.create({
@@ -108,10 +118,34 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     });
     return true;
   } else if (message.type === "CHECK_CONNECTION") {
-    // Ping/status native host
-    chrome.runtime.sendNativeMessage(NATIVE_HOST_NAME, { action: "status" }, (response) => {
+    // Ping/status native host, falling back to Loopback API server if running
+    chrome.runtime.sendNativeMessage(NATIVE_HOST_NAME, { action: "status" }, async (response) => {
       if (chrome.runtime.lastError || !response) {
-        sendResponse({ connected: false, error: chrome.runtime.lastError?.message || "Not responding" });
+        const nativeErr = chrome.runtime.lastError?.message || "Not responding";
+        if (typeof fetch === "function") {
+          try {
+            const healthRes = await fetch("http://127.0.0.1:52384/api/v1/health");
+            if (healthRes.ok) {
+              const healthData = await healthRes.json();
+              try {
+                const tokenRes = await fetch("http://127.0.0.1:52384/api/v1/auth/token");
+                if (tokenRes.ok) {
+                  const tokenData = await tokenRes.json();
+                  if (tokenData?.authToken) {
+                    await chrome.storage.local.set({ authToken: tokenData.authToken });
+                  }
+                }
+              } catch {}
+              sendResponse({
+                connected: true,
+                version: healthData?.version || "1.1.0",
+                torrentSupported: true
+              });
+              return;
+            }
+          } catch {}
+        }
+        sendResponse({ connected: false, error: nativeErr });
       } else {
         if (response.authToken) {
           chrome.storage.local.set({ authToken: response.authToken });
@@ -125,16 +159,21 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     });
     return true; // async sendResponse
   } else if (message.type === "INTERCEPT_MEDIA") {
-    sendDownloadToSwiftGet(
-      message.url,
-      message.pageUrl || sender.tab?.url || "",
-      message.fileName || message.title || "",
-      "",
-      message.savePath || message.destinationPath || "",
-      message.startImmediately !== false,
-      message.correlationId || ""
-    ).then(() => {
-      sendResponse({ success: true });
+    const mediaUrl = message.url;
+    const pageUrl = message.pageUrl || sender.tab?.url || "";
+    const fileName = message.fileName || message.title || "";
+    const destPath = message.savePath || message.destinationPath || "";
+    const startImm = message.startImmediately !== false;
+    const corrId = message.correlationId || "";
+    chrome.cookies.getAll({ url: mediaUrl }).then(cookies => {
+      const cookieHeader = (cookies || []).map(c => `${c.name}=${c.value}`).join("; ");
+      sendDownloadToSwiftGet(mediaUrl, pageUrl, fileName, cookieHeader, destPath, startImm, corrId).then(() => {
+        sendResponse({ success: true });
+      });
+    }).catch(() => {
+      sendDownloadToSwiftGet(mediaUrl, pageUrl, fileName, "", destPath, startImm, corrId).then(() => {
+        sendResponse({ success: true });
+      });
     });
     return true;
   } else if (message.type === "SHELL_EXECUTE") {
@@ -181,17 +220,57 @@ chrome.contextMenus.onClicked.addListener(async (info, tab) => {
   if (info.menuItemId === "swiftget_download_magnet" && info.linkUrl) {
     await sendMagnetToSwiftGet(info.linkUrl, tab?.url);
   } else if (info.menuItemId === "swiftget_download_torrent" && info.linkUrl) {
-    await sendTorrentLinkToSwiftGet(info.linkUrl, tab?.url, "");
+    let cookieHeader = "";
+    try {
+      const cookies = await chrome.cookies.getAll({ url: info.linkUrl });
+      cookieHeader = (cookies || []).map(c => `${c.name}=${c.value}`).join("; ");
+    } catch {}
+    await sendTorrentLinkToSwiftGet(info.linkUrl, tab?.url, "", cookieHeader);
   } else if (info.menuItemId === "swiftget_download_link" && info.linkUrl) {
     if (info.linkUrl.startsWith("magnet:?")) {
       await sendMagnetToSwiftGet(info.linkUrl, tab?.url);
-    } else if (info.linkUrl.toLowerCase().endsWith(".torrent") || info.linkUrl.toLowerCase().includes(".torrent?")) {
-      await sendTorrentLinkToSwiftGet(info.linkUrl, tab?.url, "");
     } else {
-      await sendDownloadToSwiftGet(info.linkUrl, tab?.url, "");
+      let cookieHeader = "";
+      try {
+        const cookies = await chrome.cookies.getAll({ url: info.linkUrl });
+        cookieHeader = (cookies || []).map(c => `${c.name}=${c.value}`).join("; ");
+      } catch {}
+
+      if (info.linkUrl.toLowerCase().endsWith(".torrent") || info.linkUrl.toLowerCase().includes(".torrent?")) {
+        await sendTorrentLinkToSwiftGet(info.linkUrl, tab?.url, "", cookieHeader);
+      } else {
+        await sendDownloadToSwiftGet(info.linkUrl, tab?.url, "", cookieHeader);
+      }
+    }
+  } else if (info.menuItemId === "swiftget_download_selected" && info.selectionText) {
+    const text = info.selectionText;
+    const urlMatches = text.match(/\bhttps?:\/\/[^\s"'<>]+\b/gi) || [];
+    const magnetMatches = text.match(/magnet:\?[^\s"'<>]+/gi) || [];
+
+    for (const mag of magnetMatches) {
+      await sendMagnetToSwiftGet(mag, tab?.url);
+    }
+
+    for (const url of urlMatches) {
+      let cookieHeader = "";
+      try {
+        const cookies = await chrome.cookies.getAll({ url });
+        cookieHeader = (cookies || []).map(c => `${c.name}=${c.value}`).join("; ");
+      } catch {}
+
+      if (url.toLowerCase().endsWith(".torrent") || url.toLowerCase().includes(".torrent?")) {
+        await sendTorrentLinkToSwiftGet(url, tab?.url, "", cookieHeader);
+      } else {
+        await sendDownloadToSwiftGet(url, tab?.url, "", cookieHeader);
+      }
     }
   } else if (info.menuItemId === "swiftget_download_media" && info.srcUrl) {
-    await sendDownloadToSwiftGet(info.srcUrl, tab?.url, "");
+    let cookieHeader = "";
+    try {
+      const cookies = await chrome.cookies.getAll({ url: info.srcUrl });
+      cookieHeader = (cookies || []).map(c => `${c.name}=${c.value}`).join("; ");
+    } catch {}
+    await sendDownloadToSwiftGet(info.srcUrl, tab?.url, "", cookieHeader);
   } else if (info.menuItemId === "swiftget_download_all" && tab?.id) {
     chrome.tabs.sendMessage(tab.id, { type: "GATHER_ALL_LINKS" }, async (response) => {
       if (response && response.links && response.links.length > 0) {

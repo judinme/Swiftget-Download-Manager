@@ -72,6 +72,9 @@ $sidecarsSource = Join-Path $Root "src\SwiftGet.App\sidecars"
 if (-not (Test-Path $sidecarsSource)) {
     $sidecarsSource = "C:\Users\SPARK\AppData\Local\SwiftGet\sidecars"
 }
+if (-not (Test-Path $sidecarsSource)) {
+    $sidecarsSource = "C:\Program Files\SwiftGet\sidecars"
+}
 if (Test-Path $sidecarsSource) {
     $stagingSidecars = Join-Path $stagingDir "sidecars"
     New-Item -ItemType Directory -Force -Path $stagingSidecars | Out-Null

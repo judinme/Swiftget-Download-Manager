@@ -282,4 +282,53 @@ public class TorrentEngineIntegrationTests : IAsyncLifetime
         stats.Should().NotBeNull();
         stats!.JobId.Should().Be(jobId);
     }
+
+    [Fact]
+    public async Task CreateTorrentAsync_GeneratesValidTorrentBytes_ParsableAndMatchesSource()
+    {
+        var tempFile = Path.Combine(_harness.LeecherPath, "sample_for_creation.bin");
+        var testData = new byte[65536];
+        Random.Shared.NextBytes(testData);
+        await File.WriteAllBytesAsync(tempFile, testData);
+
+        var torrentBytes = await _leecherEngine.CreateTorrentAsync(
+            tempFile,
+            announceUrls: ["udp://tracker.opentrackr.org:1337/announce"],
+            comment: "SwiftGet Unit Test",
+            createdBy: "SwiftGet Test Suite");
+
+        torrentBytes.Should().NotBeNull();
+        torrentBytes.Length.Should().BeGreaterThan(50);
+
+        var parsed = MonoTorrent.Torrent.Load(torrentBytes);
+        parsed.Name.Should().Be(Path.GetFileName(tempFile));
+        parsed.Size.Should().Be(testData.Length);
+        parsed.Comment.Should().Be("SwiftGet Unit Test");
+        parsed.CreatedBy.Should().Be("SwiftGet Test Suite");
+    }
+
+    [Fact]
+    public async Task SetSequentialDownload_And_MoveStorage_ExecuteCleanly()
+    {
+        var jobId = Guid.NewGuid().ToString("N");
+        var addOptions = new TorrentAddOptions
+        {
+            DownloadId = jobId,
+            SaveDirectory = _harness.LeecherPath,
+            StartImmediately = false,
+            SequentialDownload = true
+        };
+
+        await _leecherEngine.AddTorrentFileAsync(_harness.SingleTorrentBytes, addOptions);
+        _leecherEngine.HasJob(jobId).Should().BeTrue();
+
+        // Toggle sequential download
+        await _leecherEngine.SetSequentialDownloadAsync(jobId, false);
+        await _leecherEngine.SetSequentialDownloadAsync(jobId, true);
+
+        // Move storage
+        var newSubdir = Path.Combine(_harness.LeecherPath, "relocated");
+        await _leecherEngine.MoveStorageAsync(jobId, newSubdir);
+        _leecherEngine.HasJob(jobId).Should().BeTrue();
+    }
 }

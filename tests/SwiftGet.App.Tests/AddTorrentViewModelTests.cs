@@ -99,4 +99,39 @@ public class AddTorrentViewModelTests
             }
         }
     }
+
+    [Fact]
+    public void RecalculateSelectedSize_WhenFileSelectionToggled_UpdatesSelectedBytesAndSummary()
+    {
+        var vm = new AddTorrentViewModel();
+        var f1 = new AddTorrentFileEntryViewModel
+        {
+            FileIndex = 0,
+            RelativePath = "video.mp4",
+            FileSizeBytes = 1024 * 1024 * 100, // 100 MB
+            IsSelected = true,
+            SelectionChangedCallback = vm.RecalculateSelectedSize
+        };
+        var f2 = new AddTorrentFileEntryViewModel
+        {
+            FileIndex = 1,
+            RelativePath = "sample.nfo",
+            FileSizeBytes = 1024 * 10, // 10 KB
+            IsSelected = true,
+            SelectionChangedCallback = vm.RecalculateSelectedSize
+        };
+
+        vm.Files.Add(f1);
+        vm.Files.Add(f2);
+        vm.TotalBytes = f1.FileSizeBytes + f2.FileSizeBytes;
+        vm.RecalculateSelectedSize();
+
+        vm.SelectedBytes.Should().Be(f1.FileSizeBytes + f2.FileSizeBytes);
+        vm.SizeSummaryText.Should().Be(vm.FormattedTotalSize);
+
+        // Deselect f1
+        f1.IsSelected = false;
+        vm.SelectedBytes.Should().Be(f2.FileSizeBytes);
+        vm.SizeSummaryText.Should().Contain(vm.FormattedSelectedSize);
+    }
 }

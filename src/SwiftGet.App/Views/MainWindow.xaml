@@ -5,726 +5,825 @@
     xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
     xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
     xmlns:vm="using:SwiftGet.App.ViewModels"
+    xmlns:views="using:SwiftGet.App.Views"
     xmlns:converters="using:SwiftGet.App.Converters"
     mc:Ignorable="d"
     Title="SwiftGet Download Manager">
 
-    <!-- Force Modern Dark Fluent Theme -->
-    <Grid Background="#121316" RequestedTheme="Dark">
+    <!-- Unified Deep Dark Compact Theme (#141414) -->
+    <Grid x:Name="RootGrid"
+          Background="#141414"
+          RequestedTheme="Dark"
+          MinWidth="620"
+          MinHeight="420"
+          AllowDrop="True"
+          DragOver="DropZone_DragOver"
+          DragLeave="DropZone_DragLeave"
+          Drop="DropZone_Drop">
         <Grid.Resources>
             <Style x:Key="DefaultButtonStyle" TargetType="RadioButton">
                 <Setter Property="FontSize" Value="11" />
                 <Setter Property="FontWeight" Value="SemiBold" />
-                <Setter Property="Padding" Value="10,4" />
+                <Setter Property="Padding" Value="10,3" />
                 <Setter Property="CornerRadius" Value="4" />
+                <Setter Property="MinWidth" Value="0" />
+            </Style>
+
+            <Style x:Key="CompactPillButtonStyle" TargetType="Button">
+                <Setter Property="Background" Value="#232323" />
+                <Setter Property="Foreground" Value="#E5E5E5" />
+                <Setter Property="BorderBrush" Value="#303030" />
+                <Setter Property="BorderThickness" Value="1" />
+                <Setter Property="CornerRadius" Value="6" />
+                <Setter Property="Padding" Value="10,6" />
+                <Setter Property="FontSize" Value="12" />
+            </Style>
+
+            <Style x:Key="CompactDropDownButtonStyle" TargetType="DropDownButton">
+                <Setter Property="Background" Value="#232323" />
+                <Setter Property="Foreground" Value="#E5E5E5" />
+                <Setter Property="BorderBrush" Value="#303030" />
+                <Setter Property="BorderThickness" Value="1" />
+                <Setter Property="CornerRadius" Value="6" />
+                <Setter Property="Padding" Value="10,6" />
+                <Setter Property="FontSize" Value="12" />
+            </Style>
+
+            <Style x:Key="PrimaryAddButtonStyle" TargetType="Button">
+                <Setter Property="Background" Value="#59B9F7" />
+                <Setter Property="Foreground" Value="#081824" />
+                <Setter Property="BorderThickness" Value="0" />
+                <Setter Property="CornerRadius" Value="6" />
+                <Setter Property="Padding" Value="12,6" />
+                <Setter Property="FontWeight" Value="SemiBold" />
+                <Setter Property="FontSize" Value="12.5" />
+            </Style>
+
+            <Style x:Key="RowActionButtonStyle" TargetType="Button">
+                <Setter Property="Background" Value="#232323" />
+                <Setter Property="BorderBrush" Value="#303030" />
+                <Setter Property="BorderThickness" Value="1" />
+                <Setter Property="CornerRadius" Value="4" />
+                <Setter Property="Width" Value="28" />
+                <Setter Property="Height" Value="28" />
+                <Setter Property="Padding" Value="0" />
             </Style>
         </Grid.Resources>
 
         <Grid.RowDefinitions>
-            <!-- Custom TitleBar + MenuBar -->
-            <RowDefinition Height="36"/>
-            <!-- Modern Action Toolbar (FDM + Classic Hybrid) -->
-            <RowDefinition Height="56"/>
-            <!-- Main Content Area (Sidebar + Table + Bottom Inspector) -->
+            <!-- Row 0 (32px): Custom TitleBar -->
+            <RowDefinition Height="32"/>
+            <!-- Row 1 (52px): Unified Compact Header Bar -->
+            <RowDefinition Height="52"/>
+            <!-- Row 2 (*): Main Workspace & Download List Container -->
             <RowDefinition Height="*"/>
-            <!-- Bottom Status Bar (Snail Mode + Live Speeds) -->
-            <RowDefinition Height="34"/>
+            <!-- Row 3 (Auto): Collapsible Bottom Details Drawer -->
+            <RowDefinition x:Name="InspectorRow" Height="Auto"/>
+            <!-- Row 4 (38px): Compact Status Footer -->
+            <RowDefinition Height="38"/>
         </Grid.RowDefinitions>
 
         <!-- ======================================================== -->
-        <!-- 1. TOP TITLE & MENU BAR                                  -->
+        <!-- ROW 0 (32px): CUSTOM TITLE BAR                           -->
         <!-- ======================================================== -->
-        <Grid x:Name="AppTitleBar" Grid.Row="0" Background="#0D0E11" Padding="12,0" BorderBrush="#22242A" BorderThickness="0,0,0,1">
-            <Grid.ColumnDefinitions>
-                <ColumnDefinition Width="Auto"/>
-                <ColumnDefinition Width="Auto"/>
-                <ColumnDefinition Width="*"/>
-            </Grid.ColumnDefinitions>
-
-            <!-- App Brand -->
-            <StackPanel Orientation="Horizontal" Spacing="8" VerticalAlignment="Center" Margin="0,0,16,0">
-                <Border Background="#38BDF8" Width="20" Height="20" CornerRadius="4">
-                    <FontIcon Glyph="&#xE896;" FontSize="12" Foreground="#0B0F17" FontWeight="Bold"/>
+        <Grid x:Name="AppTitleBar" Grid.Row="0" Background="#141414" Padding="14,0,140,0">
+            <StackPanel Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+                <Border Background="#59B9F7" Width="18" Height="18" CornerRadius="4">
+                    <FontIcon Glyph="&#xE896;" FontSize="10.5" Foreground="#081824" FontWeight="Bold"/>
                 </Border>
-                <TextBlock Text="SwiftGet" FontWeight="SemiBold" FontSize="13" VerticalAlignment="Center" Foreground="#F3F4F6"/>
+                <TextBlock Text="SwiftGet Download Manager" FontSize="12" FontWeight="SemiBold" Foreground="#CCCCCC" VerticalAlignment="Center"/>
             </StackPanel>
-
-            <!-- Compact Native MenuBar -->
-            <MenuBar Grid.Column="1" VerticalAlignment="Center" AutomationProperties.AutomationId="MainWindow_MenuBar">
-                <MenuBarItem Title="Tasks" AutomationProperties.AutomationId="Menu_Tasks">
-                    <MenuFlyoutItem Text="Add New Download..." Click="AddDownload_Click" AutomationProperties.AutomationId="Menu_Tasks_AddDownload">
-                        <MenuFlyoutItem.KeyboardAccelerators>
-                            <KeyboardAccelerator Modifiers="Control" Key="N"/>
-                        </MenuFlyoutItem.KeyboardAccelerators>
-                        <MenuFlyoutItem.Icon>
-                            <FontIcon Glyph="&#xE710;" />
-                        </MenuFlyoutItem.Icon>
-                    </MenuFlyoutItem>
-                    <MenuFlyoutItem Text="Download Video / Media..." Click="MediaDownload_Click" AutomationProperties.AutomationId="Menu_Tasks_MediaDownload">
-                        <MenuFlyoutItem.KeyboardAccelerators>
-                            <KeyboardAccelerator Modifiers="Control" Key="M"/>
-                        </MenuFlyoutItem.KeyboardAccelerators>
-                        <MenuFlyoutItem.Icon>
-                            <FontIcon Glyph="&#xE714;" />
-                        </MenuFlyoutItem.Icon>
-                    </MenuFlyoutItem>
-                    <MenuFlyoutItem Text="Open Torrent File / Magnet..." Click="AddTorrent_Click" AutomationProperties.AutomationId="Menu_Tasks_AddTorrent">
-                        <MenuFlyoutItem.KeyboardAccelerators>
-                            <KeyboardAccelerator Modifiers="Control" Key="T"/>
-                        </MenuFlyoutItem.KeyboardAccelerators>
-                        <MenuFlyoutItem.Icon>
-                            <FontIcon Glyph="&#xE896;" />
-                        </MenuFlyoutItem.Icon>
-                    </MenuFlyoutItem>
-                    <MenuFlyoutItem Text="Batch Download..." Click="BatchDownload_Click" AutomationProperties.AutomationId="Menu_Tasks_BatchDownload">
-                        <MenuFlyoutItem.KeyboardAccelerators>
-                            <KeyboardAccelerator Modifiers="Control" Key="B"/>
-                        </MenuFlyoutItem.KeyboardAccelerators>
-                    </MenuFlyoutItem>
-                    <MenuFlyoutItem Text="Site Grabber Project..." Click="Grabber_Click" AutomationProperties.AutomationId="Menu_Tasks_Grabber">
-                        <MenuFlyoutItem.KeyboardAccelerators>
-                            <KeyboardAccelerator Modifiers="Control" Key="G"/>
-                        </MenuFlyoutItem.KeyboardAccelerators>
-                        <MenuFlyoutItem.Icon>
-                            <FontIcon Glyph="&#xE774;" />
-                        </MenuFlyoutItem.Icon>
-                    </MenuFlyoutItem>
-                    <MenuFlyoutSeparator/>
-                    <MenuFlyoutItem Text="Import URLs from Clipboard" Click="Import_Click" AutomationProperties.AutomationId="Menu_Tasks_ImportClipboard" />
-                    <MenuFlyoutItem Text="Export Download List" Click="Export_Click" AutomationProperties.AutomationId="Menu_Tasks_ExportList" />
-                    <MenuFlyoutSeparator/>
-                    <MenuFlyoutItem Text="Minimize to System Tray" Click="MinimizeToTray_Click" AutomationProperties.AutomationId="Menu_Tasks_MinimizeToTray" />
-                    <MenuFlyoutItem Text="Exit" Click="Exit_Click" AutomationProperties.AutomationId="Menu_Tasks_Exit" />
-                </MenuBarItem>
-                <MenuBarItem Title="File" AutomationProperties.AutomationId="Menu_File">
-                    <MenuFlyoutItem Text="Resume Download" Click="ResumeSelected_Click" AutomationProperties.AutomationId="Menu_File_Resume">
-                        <MenuFlyoutItem.KeyboardAccelerators>
-                            <KeyboardAccelerator Modifiers="Control" Key="R"/>
-                        </MenuFlyoutItem.KeyboardAccelerators>
-                        <MenuFlyoutItem.Icon>
-                            <FontIcon Glyph="&#xE768;" />
-                        </MenuFlyoutItem.Icon>
-                    </MenuFlyoutItem>
-                    <MenuFlyoutItem Text="Stop Download" Click="PauseSelected_Click" AutomationProperties.AutomationId="Menu_File_Stop">
-                        <MenuFlyoutItem.KeyboardAccelerators>
-                            <KeyboardAccelerator Modifiers="Control" Key="S"/>
-                        </MenuFlyoutItem.KeyboardAccelerators>
-                        <MenuFlyoutItem.Icon>
-                            <FontIcon Glyph="&#xE769;" />
-                        </MenuFlyoutItem.Icon>
-                    </MenuFlyoutItem>
-                    <MenuFlyoutItem Text="Stop All" Click="StopAll_Click" AutomationProperties.AutomationId="Menu_File_StopAll">
-                        <MenuFlyoutItem.Icon>
-                            <FontIcon Glyph="&#xE71A;" />
-                        </MenuFlyoutItem.Icon>
-                    </MenuFlyoutItem>
-                    <MenuFlyoutSeparator/>
-                    <MenuFlyoutItem Text="Delete" Click="DeleteSelected_Click" AutomationProperties.AutomationId="Menu_File_Delete">
-                        <MenuFlyoutItem.KeyboardAccelerators>
-                            <KeyboardAccelerator Key="Delete" />
-                        </MenuFlyoutItem.KeyboardAccelerators>
-                        <MenuFlyoutItem.Icon>
-                            <FontIcon Glyph="&#xE74D;" />
-                        </MenuFlyoutItem.Icon>
-                    </MenuFlyoutItem>
-                    <MenuFlyoutItem Text="Delete All Completed" Click="ClearCompleted_Click" AutomationProperties.AutomationId="Menu_File_ClearCompleted">
-                        <MenuFlyoutItem.Icon>
-                            <FontIcon Glyph="&#xE75C;" />
-                        </MenuFlyoutItem.Icon>
-                    </MenuFlyoutItem>
-                </MenuBarItem>
-                <MenuBarItem Title="Downloads" AutomationProperties.AutomationId="Menu_Downloads">
-                    <MenuFlyoutItem Text="Start Queue" Click="StartQueue_Click" AutomationProperties.AutomationId="Menu_Downloads_StartQueue">
-                        <MenuFlyoutItem.Icon>
-                            <FontIcon Glyph="&#xE768;" />
-                        </MenuFlyoutItem.Icon>
-                    </MenuFlyoutItem>
-                    <MenuFlyoutItem Text="Stop Queue" Click="StopQueue_Click" AutomationProperties.AutomationId="Menu_Downloads_StopQueue">
-                        <MenuFlyoutItem.Icon>
-                            <FontIcon Glyph="&#xE769;" />
-                        </MenuFlyoutItem.Icon>
-                    </MenuFlyoutItem>
-                    <MenuFlyoutSeparator/>
-                    <MenuFlyoutItem Text="Scheduler &amp; Queues" Click="Scheduler_Click" AutomationProperties.AutomationId="Menu_Downloads_Scheduler">
-                        <MenuFlyoutItem.Icon>
-                            <FontIcon Glyph="&#xE787;" />
-                        </MenuFlyoutItem.Icon>
-                    </MenuFlyoutItem>
-                    <MenuFlyoutItem Text="Options / Settings" Click="Options_Click" AutomationProperties.AutomationId="Menu_Downloads_Options">
-                        <MenuFlyoutItem.Icon>
-                            <FontIcon Glyph="&#xE713;" />
-                        </MenuFlyoutItem.Icon>
-                    </MenuFlyoutItem>
-                </MenuBarItem>
-                <MenuBarItem Title="View" AutomationProperties.AutomationId="Menu_View">
-                    <ToggleMenuFlyoutItem Text="Show Categories Sidebar" IsChecked="True" Click="ToggleSidebar_Click" AutomationProperties.AutomationId="Menu_View_ToggleSidebar"/>
-                    <ToggleMenuFlyoutItem Text="Show Bottom Inspector" IsChecked="True" Click="ToggleInspector_Click" AutomationProperties.AutomationId="Menu_View_ToggleInspector"/>
-                    <ToggleMenuFlyoutItem x:Name="DropTargetMenuItem" Text="Floating Drop Target" Click="DropTarget_Click" AutomationProperties.AutomationId="Menu_View_DropTarget"/>
-                </MenuBarItem>
-                <MenuBarItem Title="Help" AutomationProperties.AutomationId="Menu_Help">
-                    <MenuFlyoutItem Text="Export Diagnostic Report..." Click="Diagnostics_Click" AutomationProperties.AutomationId="Menu_Help_Diagnostics">
-                        <MenuFlyoutItem.KeyboardAccelerators>
-                            <KeyboardAccelerator Key="D" Modifiers="Control" />
-                        </MenuFlyoutItem.KeyboardAccelerators>
-                        <MenuFlyoutItem.Icon>
-                            <FontIcon Glyph="&#xE9F9;" />
-                        </MenuFlyoutItem.Icon>
-                    </MenuFlyoutItem>
-                    <MenuFlyoutItem Text="Documentation" Click="Docs_Click" AutomationProperties.AutomationId="Menu_Help_Docs"/>
-                    <MenuFlyoutItem Text="Check for Updates" Click="Updates_Click" AutomationProperties.AutomationId="Menu_Help_Updates"/>
-                    <MenuFlyoutSeparator/>
-                    <MenuFlyoutItem Text="About SwiftGet" Click="About_Click" AutomationProperties.AutomationId="Menu_Help_About"/>
-                </MenuBarItem>
-                <MenuBarItem Title="License" AutomationProperties.AutomationId="Menu_License">
-                    <MenuFlyoutItem Text="License Details..." Click="About_Click" AutomationProperties.AutomationId="Menu_License_Details"/>
-                </MenuBarItem>
-            </MenuBar>
         </Grid>
 
         <!-- ======================================================== -->
-        <!-- 2. MODERN FDM-STYLE ACTION BAR                           -->
+        <!-- ROW 1 (52px): UNIFIED COMPACT HEADER BAR                 -->
         <!-- ======================================================== -->
-        <Grid Grid.Row="1" Background="#16181D" Padding="12,0" BorderBrush="#252830" BorderThickness="0,0,0,1" AutomationProperties.AutomationId="MainWindow_ToolBar">
+        <Grid Grid.Row="1" Background="#141414" Padding="16,6,16,6" AutomationProperties.AutomationId="MainWindow_ToolBar">
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="Auto"/>
-                <ColumnDefinition Width="Auto"/>
-                <ColumnDefinition Width="Auto"/>
                 <ColumnDefinition Width="*"/>
-                <ColumnDefinition Width="260"/>
+                <ColumnDefinition Width="Auto"/>
+                <ColumnDefinition Width="Auto"/>
                 <ColumnDefinition Width="Auto"/>
             </Grid.ColumnDefinitions>
 
-            <!-- Left Sidebar Toggle & Filters (From Reference 3) -->
+            <!-- Left StackPanel: Batch Selection, Sort, Filter -->
             <StackPanel Grid.Column="0" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
-                <ToggleButton x:Name="SidebarToggleBtn" IsChecked="True" Click="ToggleSidebar_Click"
-                              AutomationProperties.AutomationId="Toolbar_ToggleSidebar"
-                              ToolTipService.ToolTip="Toggle Categories Sidebar"
-                              Background="#21242C" BorderBrush="#2E323D" CornerRadius="6" Padding="8,6">
-                    <FontIcon Glyph="&#xE700;" FontSize="14"/>
-                </ToggleButton>
-
-                <!-- Sort DropDown -->
-                <ComboBox x:Name="SortCombo" SelectedIndex="0" Width="125" Background="#21242C" BorderBrush="#2E323D" CornerRadius="6"
-                          AutomationProperties.AutomationId="Toolbar_SortCombo"
-                          SelectionChanged="SortCombo_SelectionChanged">
-                    <ComboBoxItem Content="Newest"/>
-                    <ComboBoxItem Content="Largest Size"/>
-                    <ComboBoxItem Content="Status"/>
-                    <ComboBoxItem Content="File Name"/>
-                </ComboBox>
-
-                <!-- Category Filter DropDown -->
-                <ComboBox x:Name="QuickCategoryCombo" SelectedIndex="0" Width="130" Background="#21242C" BorderBrush="#2E323D" CornerRadius="6"
-                          AutomationProperties.AutomationId="Toolbar_CategoryFilter"
-                          SelectionChanged="QuickCategoryCombo_SelectionChanged">
-                    <ComboBoxItem Content="All files" Tag="all"/>
-                    <ComboBoxItem Content="Video / Media" Tag="video"/>
-                    <ComboBoxItem Content="Torrents" Tag="torrents"/>
-                    <ComboBoxItem Content="Compressed" Tag="compressed"/>
-                    <ComboBoxItem Content="Programs" Tag="programs"/>
-                    <ComboBoxItem Content="Documents" Tag="documents"/>
-                    <ComboBoxItem Content="Music" Tag="music"/>
-                </ComboBox>
-            </StackPanel>
-
-            <!-- Primary Sky-Blue "+ Add download" Pill Button (From Reference 3) -->
-            <Button Grid.Column="1" Click="AddDownload_Click"
-                    AutomationProperties.AutomationId="Toolbar_AddDownload"
-                    Margin="16,0,12,0" Padding="16,7" CornerRadius="16"
-                    Background="#5CC8FF" Foreground="#081018" BorderThickness="0" FontWeight="SemiBold">
-                <StackPanel Orientation="Horizontal" Spacing="8">
-                    <FontIcon Glyph="&#xE710;" FontSize="13" FontWeight="Bold"/>
-                    <TextBlock Text="Add download" FontSize="13"/>
-                </StackPanel>
-            </Button>
-
-            <!-- Grouped Quick Action Controls (Consolidated from Reference 1 & 2) -->
-            <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="4" VerticalAlignment="Center">
-                <AppBarSeparator/>
-                <Button Click="ResumeSelected_Click" AutomationProperties.AutomationId="Toolbar_Resume" Background="Transparent" BorderThickness="0" ToolTipService.ToolTip="Resume Selected" Padding="8,6">
-                    <StackPanel Orientation="Horizontal" Spacing="6">
-                        <FontIcon Glyph="&#xE768;" FontSize="13" Foreground="#4ADE80"/>
-                        <TextBlock Text="Resume" FontSize="12" Foreground="#D1D5DB"/>
-                    </StackPanel>
-                </Button>
-                <Button Click="PauseSelected_Click" AutomationProperties.AutomationId="Toolbar_Stop" Background="Transparent" BorderThickness="0" ToolTipService.ToolTip="Stop / Pause Selected" Padding="8,6">
-                    <StackPanel Orientation="Horizontal" Spacing="6">
-                        <FontIcon Glyph="&#xE769;" FontSize="13" Foreground="#FBBF24"/>
-                        <TextBlock Text="Stop" FontSize="12" Foreground="#D1D5DB"/>
-                    </StackPanel>
-                </Button>
-                <Button Click="StopAll_Click" AutomationProperties.AutomationId="Toolbar_StopAll" Background="Transparent" BorderThickness="0" ToolTipService.ToolTip="Stop All Active Downloads" Padding="8,6">
-                    <FontIcon Glyph="&#xE71A;" FontSize="13" Foreground="#F87171"/>
-                </Button>
-
-                <AppBarSeparator/>
-
-                <Button Click="DeleteSelected_Click" AutomationProperties.AutomationId="Toolbar_Delete" Background="Transparent" BorderThickness="0" ToolTipService.ToolTip="Delete Selected" Padding="8,6">
-                    <FontIcon Glyph="&#xE74D;" FontSize="14" Foreground="#9CA3AF"/>
-                </Button>
-                <Button Click="ClearCompleted_Click" AutomationProperties.AutomationId="Toolbar_ClearCompleted" Background="Transparent" BorderThickness="0" ToolTipService.ToolTip="Clear Completed" Padding="8,6">
-                    <StackPanel Orientation="Horizontal" Spacing="6">
-                        <FontIcon Glyph="&#xE75C;" FontSize="14" Foreground="#9CA3AF"/>
-                        <TextBlock Text="Clear Done" FontSize="12" Foreground="#9CA3AF"/>
-                    </StackPanel>
-                </Button>
-
-                <AppBarSeparator/>
-
-                <!-- Queue & Scheduler Quick Access -->
-                <Button Click="Scheduler_Click" AutomationProperties.AutomationId="Toolbar_Scheduler" Background="Transparent" BorderThickness="0" ToolTipService.ToolTip="Scheduler &amp; Queues" Padding="8,6">
-                    <StackPanel Orientation="Horizontal" Spacing="6">
-                        <FontIcon Glyph="&#xE787;" FontSize="13" Foreground="#A78BFA"/>
-                        <TextBlock Text="Scheduler" FontSize="12" Foreground="#D1D5DB"/>
-                    </StackPanel>
-                </Button>
-                <Button Click="Grabber_Click" AutomationProperties.AutomationId="Toolbar_Grabber" Background="Transparent" BorderThickness="0" ToolTipService.ToolTip="Site Grabber" Padding="8,6">
-                    <StackPanel Orientation="Horizontal" Spacing="6">
-                        <FontIcon Glyph="&#xE774;" FontSize="13" Foreground="#38BDF8"/>
-                        <TextBlock Text="Grabber" FontSize="12" Foreground="#D1D5DB"/>
-                    </StackPanel>
-                </Button>
-            </StackPanel>
-
-            <!-- Modern Search Box (From Reference 3) -->
-            <AutoSuggestBox x:Name="SearchBox" Grid.Column="4"
-                            AutomationProperties.AutomationId="Toolbar_SearchBox"
-                            PlaceholderText="Search in downloads..."
-                            QueryIcon="Find" VerticalAlignment="Center"
-                            Text="{x:Bind ViewModel.SearchFilter, Mode=TwoWay}"
-                            TextChanged="SearchBox_TextChanged"
-                            Background="#21242C" BorderBrush="#2E323D" CornerRadius="16"/>
-
-            <!-- Right Settings / More Menu Button -->
-            <Button Grid.Column="5" Click="Options_Click" Margin="8,0,0,0" Background="Transparent" BorderThickness="0" Padding="8"
-                    AutomationProperties.AutomationId="Toolbar_Options"
-                    ToolTipService.ToolTip="Options &amp; Preferences">
-                <FontIcon Glyph="&#xE713;" FontSize="15" Foreground="#9CA3AF"/>
-            </Button>
-        </Grid>
-
-        <!-- ======================================================== -->
-        <!-- 3. MAIN WORKSPACE (SIDEBAR + LIST + DROPZONE + INSPECTOR)-->
-        <!-- ======================================================== -->
-        <SplitView x:Name="MainSplitView" Grid.Row="2" IsPaneOpen="True" OpenPaneLength="215"
-                   DisplayMode="Inline" PaneBackground="#14161B">
-
-            <!-- Left Categories & Queues Tree (From Reference 1 & 2) -->
-            <SplitView.Pane>
-                <Border BorderBrush="#22252D" BorderThickness="0,0,1,0" Padding="8,12">
-                    <ScrollViewer VerticalScrollBarVisibility="Auto">
-                        <StackPanel Spacing="4">
-                            <TextBlock Text="CATEGORIES" FontSize="11" FontWeight="Bold" Foreground="#6B7280" Margin="10,0,0,6"/>
-
-                            <ListView x:Name="CategoryList" AutomationProperties.AutomationId="Sidebar_CategoryList" SelectionMode="Single" SelectedIndex="0" SelectionChanged="CategoryList_SelectionChanged">
-                                <ListViewItem Tag="all" AutomationProperties.AutomationId="Category_All">
-                                    <Grid ColumnDefinitions="Auto,*,Auto" Width="170">
-                                        <FontIcon Glyph="&#xE8B7;" FontSize="14" Foreground="#38BDF8" Margin="0,0,10,0"/>
-                                        <TextBlock Grid.Column="1" Text="All Downloads" FontSize="13"/>
-                                        <InfoBadge x:Name="BadgeAll" Grid.Column="2" Value="0" Background="#252832"/>
-                                    </Grid>
-                                </ListViewItem>
-                                <ListViewItem Tag="video" AutomationProperties.AutomationId="Category_Video">
-                                    <Grid ColumnDefinitions="Auto,*,Auto" Width="170" Margin="12,0,0,0">
-                                        <FontIcon Glyph="&#xE714;" FontSize="13" Foreground="#A78BFA" Margin="0,0,10,0"/>
-                                        <TextBlock Grid.Column="1" Text="Video / Media" FontSize="12.5" Foreground="#D1D5DB"/>
-                                        <InfoBadge x:Name="BadgeVideo" Grid.Column="2" Value="0" Background="#252832"/>
-                                    </Grid>
-                                </ListViewItem>
-                                <ListViewItem Tag="compressed" AutomationProperties.AutomationId="Category_Compressed">
-                                    <Grid ColumnDefinitions="Auto,*,Auto" Width="170" Margin="12,0,0,0">
-                                        <FontIcon Glyph="&#xF012;" FontSize="13" Foreground="#FBBF24" Margin="0,0,10,0"/>
-                                        <TextBlock Grid.Column="1" Text="Compressed" FontSize="12.5" Foreground="#D1D5DB"/>
-                                        <InfoBadge x:Name="BadgeCompressed" Grid.Column="2" Value="0" Background="#252832"/>
-                                    </Grid>
-                                </ListViewItem>
-                                <ListViewItem Tag="programs" AutomationProperties.AutomationId="Category_Programs">
-                                    <Grid ColumnDefinitions="Auto,*,Auto" Width="170" Margin="12,0,0,0">
-                                        <FontIcon Glyph="&#xE756;" FontSize="13" Foreground="#60A5FA" Margin="0,0,10,0"/>
-                                        <TextBlock Grid.Column="1" Text="Programs" FontSize="12.5" Foreground="#D1D5DB"/>
-                                        <InfoBadge x:Name="BadgePrograms" Grid.Column="2" Value="0" Background="#252832"/>
-                                    </Grid>
-                                </ListViewItem>
-                                <ListViewItem Tag="documents" AutomationProperties.AutomationId="Category_Documents">
-                                    <Grid ColumnDefinitions="Auto,*,Auto" Width="170" Margin="12,0,0,0">
-                                        <FontIcon Glyph="&#xE8A5;" FontSize="13" Foreground="#818CF8" Margin="0,0,10,0"/>
-                                        <TextBlock Grid.Column="1" Text="Documents" FontSize="12.5" Foreground="#D1D5DB"/>
-                                        <InfoBadge x:Name="BadgeDocuments" Grid.Column="2" Value="0" Background="#252832"/>
-                                    </Grid>
-                                </ListViewItem>
-                                <ListViewItem Tag="music" AutomationProperties.AutomationId="Category_Music">
-                                    <Grid ColumnDefinitions="Auto,*,Auto" Width="170" Margin="12,0,0,0">
-                                        <FontIcon Glyph="&#xE8D6;" FontSize="13" Foreground="#34D399" Margin="0,0,10,0"/>
-                                        <TextBlock Grid.Column="1" Text="Music" FontSize="12.5" Foreground="#D1D5DB"/>
-                                        <InfoBadge x:Name="BadgeMusic" Grid.Column="2" Value="0" Background="#252832"/>
-                                    </Grid>
-                                </ListViewItem>
-                                <ListViewItem Tag="torrents" AutomationProperties.AutomationId="Category_Torrents">
-                                    <Grid ColumnDefinitions="Auto,*,Auto" Width="170" Margin="12,0,0,0">
-                                        <FontIcon Glyph="&#xE896;" FontSize="13" Foreground="#38BDF8" Margin="0,0,10,0"/>
-                                        <TextBlock Grid.Column="1" Text="Torrents" FontSize="12.5" Foreground="#D1D5DB"/>
-                                        <InfoBadge x:Name="BadgeTorrents" Grid.Column="2" Value="0" Background="#252832"/>
-                                    </Grid>
-                                </ListViewItem>
-                                <ListViewItem Tag="unfinished" AutomationProperties.AutomationId="Category_Unfinished">
-                                    <Grid ColumnDefinitions="Auto,*,Auto" Width="170">
-                                        <FontIcon Glyph="&#xE895;" FontSize="14" Foreground="#FBBF24" Margin="0,0,10,0"/>
-                                        <TextBlock Grid.Column="1" Text="Unfinished" FontSize="13"/>
-                                        <InfoBadge x:Name="BadgeUnfinished" Grid.Column="2" Value="0" Background="#252832"/>
-                                    </Grid>
-                                </ListViewItem>
-                                <ListViewItem Tag="finished" AutomationProperties.AutomationId="Category_Finished">
-                                    <Grid ColumnDefinitions="Auto,*,Auto" Width="170">
-                                        <FontIcon Glyph="&#xE73E;" FontSize="14" Foreground="#4ADE80" Margin="0,0,10,0"/>
-                                        <TextBlock Grid.Column="1" Text="Finished" FontSize="13"/>
-                                        <InfoBadge x:Name="BadgeCompleted" Grid.Column="2" Value="0" Background="#252832"/>
-                                    </Grid>
-                                </ListViewItem>
-                            </ListView>
-
-                            <Border Height="1" Background="#22252D" Margin="8,10"/>
-                            <TextBlock Text="QUEUES &amp; PROJECTS" FontSize="11" FontWeight="Bold" Foreground="#6B7280" Margin="10,0,0,6"/>
-
-                            <Button Click="StartQueue_Click" AutomationProperties.AutomationId="Sidebar_Queue_Main" HorizontalAlignment="Stretch" HorizontalContentAlignment="Left" Background="Transparent" BorderThickness="0" Padding="12,8">
-                                <StackPanel Orientation="Horizontal" Spacing="10">
-                                    <FontIcon Glyph="&#xE90B;" FontSize="14" Foreground="#38BDF8"/>
-                                    <TextBlock Text="Main Queue (Q1)" FontSize="12.5" Foreground="#D1D5DB"/>
-                                </StackPanel>
-                            </Button>
-                            <Button Click="Grabber_Click" AutomationProperties.AutomationId="Sidebar_Queue_Grabber" HorizontalAlignment="Stretch" HorizontalContentAlignment="Left" Background="Transparent" BorderThickness="0" Padding="12,8">
-                                <StackPanel Orientation="Horizontal" Spacing="10">
-                                    <FontIcon Glyph="&#xE774;" FontSize="14" Foreground="#F472B6"/>
-                                    <TextBlock Text="Grabber projects" FontSize="12.5" Foreground="#D1D5DB"/>
-                                </StackPanel>
-                            </Button>
-                        </StackPanel>
-                    </ScrollViewer>
-                </Border>
-            </SplitView.Pane>
-
-            <!-- Right Content Area -->
-            <Grid Background="#121316">
-                <Grid.RowDefinitions>
-                    <!-- Table Header -->
-                    <RowDefinition Height="36"/>
-                    <!-- Download Items List -->
-                    <RowDefinition Height="*"/>
-                    <!-- Dashed Drag & Drop Zone (From Reference 3) -->
-                    <RowDefinition Height="105"/>
-                    <!-- Bottom Detailed Inspector (From Reference 3) -->
-                    <RowDefinition x:Name="InspectorRow" Height="225"/>
-                </Grid.RowDefinitions>
-
-                <!-- 3A. TABLE COLUMN HEADERS -->
-                <Grid Grid.Row="0" Background="#181A20" Padding="16,0" BorderBrush="#23262F" BorderThickness="0,0,0,1" AutomationProperties.AutomationId="Downloads_TableHeader">
-                    <Grid.ColumnDefinitions>
-                        <ColumnDefinition Width="36"/>
-                        <ColumnDefinition Width="3*"/>
-                        <ColumnDefinition Width="50"/>
-                        <ColumnDefinition Width="100"/>
-                        <ColumnDefinition Width="165"/>
-                        <ColumnDefinition Width="105"/>
-                        <ColumnDefinition Width="95"/>
-                        <ColumnDefinition Width="100"/>
-                    </Grid.ColumnDefinitions>
-                    <CheckBox Grid.Column="0" AutomationProperties.AutomationId="TableHeader_SelectAll" MinWidth="0" VerticalAlignment="Center"/>
-                    <TextBlock Grid.Column="1" AutomationProperties.AutomationId="ColumnHeader_Name" Text="Name" Foreground="#9CA3AF" FontSize="12" VerticalAlignment="Center" FontWeight="SemiBold"/>
-                    <TextBlock Grid.Column="2" AutomationProperties.AutomationId="ColumnHeader_Queue" Text="Q" Foreground="#9CA3AF" FontSize="12" VerticalAlignment="Center" FontWeight="SemiBold"/>
-                    <TextBlock Grid.Column="3" AutomationProperties.AutomationId="ColumnHeader_Size" Text="Size" Foreground="#9CA3AF" FontSize="12" VerticalAlignment="Center" FontWeight="SemiBold"/>
-                    <TextBlock Grid.Column="4" AutomationProperties.AutomationId="ColumnHeader_StatusProgress" Text="Status / Progress" Foreground="#9CA3AF" FontSize="12" VerticalAlignment="Center" FontWeight="SemiBold"/>
-                    <TextBlock Grid.Column="5" AutomationProperties.AutomationId="ColumnHeader_Speed" Text="Download" Foreground="#9CA3AF" FontSize="12" VerticalAlignment="Center" FontWeight="SemiBold"/>
-                    <TextBlock Grid.Column="6" AutomationProperties.AutomationId="ColumnHeader_TimeLeft" Text="Time left" Foreground="#9CA3AF" FontSize="12" VerticalAlignment="Center" FontWeight="SemiBold"/>
-                    <TextBlock Grid.Column="7" AutomationProperties.AutomationId="ColumnHeader_Added" Text="Added" Foreground="#9CA3AF" FontSize="12" VerticalAlignment="Center" FontWeight="SemiBold"/>
-                </Grid>
-
-                <!-- 3B. DOWNLOAD ITEMS LISTVIEW -->
-                <ListView x:Name="DownloadsListView" Grid.Row="1"
-                          AutomationProperties.AutomationId="Downloads_ListView"
-                          ItemsSource="{x:Bind ViewModel.FilteredDownloads, Mode=OneWay}"
-                          SelectedItem="{x:Bind ViewModel.SelectedItem, Mode=TwoWay}"
-                          SelectionMode="Single"
-                          SelectionChanged="DownloadsListView_SelectionChanged"
-                          DoubleTapped="DownloadListView_DoubleTapped"
-                          RightTapped="DownloadListView_RightTapped"
-                          KeyDown="DownloadListView_KeyDown"
-                          Padding="0">
-
-                    <!-- Right-Click Context Menu -->
-                    <ListView.ContextFlyout>
-                        <MenuFlyout AutomationProperties.AutomationId="Downloads_ContextMenu">
-                            <MenuFlyoutItem Text="Resume" Click="ResumeContext_Click" AutomationProperties.AutomationId="ContextMenu_Resume">
+                <!-- 1. Batch Selection DropDownButton -->
+                <DropDownButton x:Name="BatchSelectDropDown"
+                                Style="{StaticResource CompactDropDownButtonStyle}"
+                                AutomationProperties.AutomationId="Toolbar_BatchSelect"
+                                ToolTipService.ToolTip="Batch Selection &amp; Cleanup">
+                    <FontIcon Glyph="&#xE73A;" FontSize="13" Foreground="#DCDCDC"/>
+                    <DropDownButton.Flyout>
+                        <MenuFlyout Placement="BottomEdgeAlignedLeft">
+                            <MenuFlyoutItem Text="Select All" Click="SelectAll_Click" AutomationProperties.AutomationId="Batch_SelectAll">
                                 <MenuFlyoutItem.Icon>
-                                    <FontIcon Glyph="&#xE768;" />
+                                    <FontIcon Glyph="&#xE8B3;" />
                                 </MenuFlyoutItem.Icon>
                             </MenuFlyoutItem>
-                            <MenuFlyoutItem Text="Pause / Stop" Click="StopContext_Click" AutomationProperties.AutomationId="ContextMenu_Stop">
+                            <MenuFlyoutItem Text="Select None" Click="SelectNone_Click" AutomationProperties.AutomationId="Batch_SelectNone">
                                 <MenuFlyoutItem.Icon>
-                                    <FontIcon Glyph="&#xE769;" />
+                                    <FontIcon Glyph="&#xE8E6;" />
                                 </MenuFlyoutItem.Icon>
                             </MenuFlyoutItem>
-                            <MenuFlyoutSeparator />
-                            <MenuFlyoutItem Text="Download Details..." Click="OpenDetails_Click" AutomationProperties.AutomationId="ContextMenu_Details" />
-                            <MenuFlyoutItem Text="Copy URL to Clipboard" Click="CopyUrl_Click" AutomationProperties.AutomationId="ContextMenu_CopyUrl" />
-                            <MenuFlyoutItem Text="Open Containing Folder" Click="OpenFolder_Click" AutomationProperties.AutomationId="ContextMenu_OpenFolder" />
-                            <MenuFlyoutSeparator />
-                            <MenuFlyoutItem Text="Force Recheck" Click="ForceRecheck_Click" AutomationProperties.AutomationId="ContextMenu_ForceRecheck">
+                            <MenuFlyoutItem Text="Invert Selection" Click="InvertSelection_Click" AutomationProperties.AutomationId="Batch_InvertSelection">
                                 <MenuFlyoutItem.Icon>
-                                    <FontIcon Glyph="&#xE72C;" />
+                                    <FontIcon Glyph="&#xE8AB;" />
                                 </MenuFlyoutItem.Icon>
                             </MenuFlyoutItem>
-                            <MenuFlyoutItem Text="Copy Magnet / Info Hash" Click="CopyMagnet_Click" AutomationProperties.AutomationId="ContextMenu_CopyMagnet">
-                                <MenuFlyoutItem.Icon>
-                                    <FontIcon Glyph="&#xE896;" />
-                                </MenuFlyoutItem.Icon>
-                            </MenuFlyoutItem>
-                            <MenuFlyoutItem Text="Toggle Sequential Download" Click="ToggleSequential_Click" AutomationProperties.AutomationId="ContextMenu_ToggleSequential">
-                                <MenuFlyoutItem.Icon>
-                                    <FontIcon Glyph="&#xE8B9;" />
-                                </MenuFlyoutItem.Icon>
-                            </MenuFlyoutItem>
-                            <MenuFlyoutSeparator />
-                            <MenuFlyoutItem Text="Remove from list" Click="DeleteContext_Click" AutomationProperties.AutomationId="ContextMenu_Delete">
+                            <MenuFlyoutSeparator/>
+                            <MenuFlyoutItem Text="Remove Selected" Click="DeleteSelected_Click" AutomationProperties.AutomationId="Toolbar_Delete">
                                 <MenuFlyoutItem.Icon>
                                     <FontIcon Glyph="&#xE74D;" />
                                 </MenuFlyoutItem.Icon>
                             </MenuFlyoutItem>
+                            <MenuFlyoutItem Text="Clear Done" Click="ClearCompleted_Click" AutomationProperties.AutomationId="Toolbar_ClearCompleted">
+                                <MenuFlyoutItem.Icon>
+                                    <FontIcon Glyph="&#xE75C;" />
+                                </MenuFlyoutItem.Icon>
+                            </MenuFlyoutItem>
                         </MenuFlyout>
-                    </ListView.ContextFlyout>
+                    </DropDownButton.Flyout>
+                </DropDownButton>
 
-                    <ListView.ItemTemplate>
-                        <DataTemplate x:DataType="vm:DownloadItemViewModel">
-                            <Grid Padding="4,10" BorderBrush="#1C1F26" BorderThickness="0,0,0,1">
-                                <Grid.ColumnDefinitions>
-                                    <ColumnDefinition Width="36"/>
-                                    <ColumnDefinition Width="3*"/>
-                                    <ColumnDefinition Width="50"/>
-                                    <ColumnDefinition Width="100"/>
-                                    <ColumnDefinition Width="165"/>
-                                    <ColumnDefinition Width="105"/>
-                                    <ColumnDefinition Width="95"/>
-                                    <ColumnDefinition Width="100"/>
-                                </Grid.ColumnDefinitions>
-
-                                <CheckBox Grid.Column="0" IsChecked="{x:Bind IsSelected, Mode=TwoWay}" MinWidth="0" VerticalAlignment="Center"/>
-
-                                <!-- Icon + File Name -->
-                                <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="10" VerticalAlignment="Center">
-                                    <FontIcon Glyph="{x:Bind IconGlyph}" Foreground="{x:Bind AccentColor}" FontSize="16"/>
-                                    <TextBlock Text="{x:Bind FileName}" Foreground="#F3F4F6" FontWeight="Medium"
-                                               TextTrimming="CharacterEllipsis" MaxWidth="360" VerticalAlignment="Center"/>
-                                </StackPanel>
-
-                                <!-- Queue Tag -->
-                                <TextBlock Grid.Column="2" Text="{x:Bind QueueIndicator}" Foreground="#9CA3AF" FontSize="12" VerticalAlignment="Center"/>
-
-                                <!-- Size -->
-                                <TextBlock Grid.Column="3" Text="{x:Bind FormattedSize, Mode=OneWay}" Foreground="#D1D5DB" FontSize="12.5" VerticalAlignment="Center"/>
-
-                                <!-- Status + Live Progress Bar -->
-                                <StackPanel Grid.Column="4" Spacing="4" VerticalAlignment="Center" Margin="0,0,16,0">
-                                    <Grid>
-                                        <TextBlock Text="{x:Bind StatusText, Mode=OneWay}" Foreground="{x:Bind StatusColor, Mode=OneWay}" FontSize="12" FontWeight="SemiBold"/>
-                                        <TextBlock Text="{x:Bind ProgressPercentage, Mode=OneWay}" Foreground="#9CA3AF" FontSize="11" HorizontalAlignment="Right"/>
-                                    </Grid>
-                                    <ProgressBar Value="{x:Bind Progress, Mode=OneWay}" IsIndeterminate="{x:Bind IsIndeterminate, Mode=OneWay}" Maximum="100" Foreground="{x:Bind AccentColor, Mode=OneWay}" Background="#262934" Height="4" CornerRadius="2"/>
-                                </StackPanel>
-
-                                <!-- Transfer Rate -->
-                                <TextBlock Grid.Column="5" Text="{x:Bind FormattedSpeed, Mode=OneWay}" Foreground="#38BDF8" FontSize="12.5" VerticalAlignment="Center"/>
-
-                                <!-- Time Left -->
-                                <TextBlock Grid.Column="6" Text="{x:Bind FormattedTimeLeft, Mode=OneWay}" Foreground="#9CA3AF" FontSize="12" VerticalAlignment="Center"/>
-
-                                <!-- Added Date + Context Button -->
-                                <Grid Grid.Column="7" VerticalAlignment="Center">
-                                    <TextBlock Text="{x:Bind FormattedLastTryDate}" Foreground="#9CA3AF" FontSize="12" VerticalAlignment="Center"/>
-                                    <Button HorizontalAlignment="Right" Background="Transparent" BorderThickness="0" Padding="4">
-                                        <FontIcon Glyph="&#xE712;" FontSize="13" Foreground="#9CA3AF"/>
-                                    </Button>
-                                </Grid>
-                            </Grid>
-                        </DataTemplate>
-                    </ListView.ItemTemplate>
-                </ListView>
-
-                <!-- 3C. DASHED DRAG-AND-DROP ZONE (From Reference 3) -->
-                <Grid Grid.Row="2" Margin="16,8,16,12" AllowDrop="True"
-                      AutomationProperties.AutomationId="DropZone_Container"
-                      DragOver="DropZone_DragOver" Drop="DropZone_Drop">
-                    <Border Background="#15181F" BorderBrush="#2E3340" BorderThickness="2" CornerRadius="10"
-                            PointerPressed="DropZone_PointerPressed">
-                        <StackPanel Orientation="Horizontal" HorizontalAlignment="Center" VerticalAlignment="Center" Spacing="10">
-                            <FontIcon Glyph="&#xE896;" FontSize="18" Foreground="#6B7280"/>
-                            <TextBlock Text="Drag-and-drop URL or torrent file here (or click to add)"
-                                       Foreground="#6B7280" FontSize="13.5" FontWeight="Medium"/>
-                        </StackPanel>
-                    </Border>
-                </Grid>
-
-                <!-- 3D. BOTTOM INSPECTOR PANEL (GENERAL / DETAILS / PROGRESS / CONNECTIONS) -->
-                <Grid x:Name="BottomInspectorPanel" Grid.Row="3" Background="#16181E" BorderBrush="#262934" BorderThickness="0,1,0,0" AutomationProperties.AutomationId="BottomInspector_Panel">
-                    <Grid.RowDefinitions>
-                        <RowDefinition Height="38"/>
-                        <RowDefinition Height="*"/>
-                    </Grid.RowDefinitions>
-
-                    <!-- Inspector Header Tabs + Close Button -->
-                    <Grid Grid.Row="0" Background="#1A1D24" Padding="12,0" BorderBrush="#242832" BorderThickness="0,0,0,1">
-                        <StackPanel Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
-                            <RadioButton x:Name="TabGeneral" Content="GENERAL" GroupName="InspectorTabs" IsChecked="True"
-                                         AutomationProperties.AutomationId="Inspector_TabGeneral"
-                                         Checked="InspectorTab_Checked" Style="{StaticResource DefaultButtonStyle}"
-                                         FontSize="11" FontWeight="Bold" Padding="10,4" CornerRadius="4"/>
-                            <RadioButton x:Name="TabProgress" Content="PROGRESS &amp; CHUNKS" GroupName="InspectorTabs"
-                                         AutomationProperties.AutomationId="Inspector_TabProgress"
-                                         Checked="InspectorTab_Checked" Style="{StaticResource DefaultButtonStyle}"
-                                         FontSize="11" FontWeight="Bold" Padding="10,4" CornerRadius="4"/>
-                            <RadioButton x:Name="TabConnections" Content="CONNECTIONS" GroupName="InspectorTabs"
-                                         AutomationProperties.AutomationId="Inspector_TabConnections"
-                                         Checked="InspectorTab_Checked" Style="{StaticResource DefaultButtonStyle}"
-                                         FontSize="11" FontWeight="Bold" Padding="10,4" CornerRadius="4"/>
-                        </StackPanel>
-
-                        <Button HorizontalAlignment="Right" Click="ToggleInspector_Click" AutomationProperties.AutomationId="Inspector_CloseButton" Background="Transparent" BorderThickness="0" Padding="6">
-                            <FontIcon Glyph="&#xE711;" FontSize="12" Foreground="#9CA3AF"/>
-                        </Button>
-                    </Grid>
-
-                    <!-- GENERAL TAB CONTENT (Matches Reference 3 Bottom Panel) -->
-                    <Grid x:Name="GeneralTabView" Grid.Row="1" Padding="18,14" ColumnSpacing="20" AutomationProperties.AutomationId="Inspector_GeneralView">
-                        <Grid.ColumnDefinitions>
-                            <ColumnDefinition Width="210"/>
-                            <ColumnDefinition Width="*"/>
-                        </Grid.ColumnDefinitions>
-
-                        <!-- Media Preview Card -->
-                        <Border Grid.Column="0" Background="#0D0F14" BorderBrush="#262934" BorderThickness="1" CornerRadius="8">
-                            <StackPanel VerticalAlignment="Center" HorizontalAlignment="Center" Spacing="6">
-                                <FontIcon Glyph="&#xE714;" FontSize="32" Foreground="#38BDF8"/>
-                                <TextBlock Text="Media Preview" FontSize="11" Foreground="#6B7280"/>
-                            </StackPanel>
-                        </Border>
-
-                        <!-- Metadata Details -->
-                        <StackPanel Grid.Column="1" Spacing="8">
-                            <TextBlock x:Name="InspectorTitle"
-                                       AutomationProperties.AutomationId="Inspector_Title"
-                                       Text="Select a download to inspect details"
-                                       FontSize="14.5" FontWeight="SemiBold" Foreground="#F3F4F6" TextTrimming="CharacterEllipsis"/>
-
-                            <StackPanel Orientation="Horizontal" Spacing="8">
-                                <TextBlock x:Name="InspectorFolder" AutomationProperties.AutomationId="Inspector_Folder" Text="D:\Downloads" Foreground="#9CA3AF" FontSize="12.5" VerticalAlignment="Center"/>
-                                <Button Click="OpenFolder_Click" AutomationProperties.AutomationId="Inspector_OpenFolderButton" Background="Transparent" BorderThickness="0" Padding="4" ToolTipService.ToolTip="Open Containing Folder">
-                                    <FontIcon Glyph="&#xE8DA;" FontSize="12" Foreground="#9CA3AF"/>
-                                </Button>
-                            </StackPanel>
-
-                            <Grid ColumnDefinitions="240,260,*" RowDefinitions="Auto,Auto,Auto" RowSpacing="6" Margin="0,4,0,0">
-                                <TextBlock Grid.Row="0" Grid.Column="0" FontSize="12.5" Foreground="#9CA3AF">
-                                    Downloaded: <Run x:Name="InspectorDownloaded" Text="0 B" Foreground="#F3F4F6" FontWeight="Medium"/>
-                                </TextBlock>
-                                <TextBlock Grid.Row="0" Grid.Column="1" FontSize="12.5" Foreground="#9CA3AF">
-                                    Uploaded: <Run x:Name="InspectorUploaded" Text="0 B" Foreground="#F3F4F6" FontWeight="Medium"/>
-                                </TextBlock>
-
-                                <TextBlock Grid.Row="1" Grid.Column="0" FontSize="12.5" Foreground="#9CA3AF">
-                                    Added at: <Run x:Name="InspectorAdded" Text="—" Foreground="#F3F4F6"/>
-                                </TextBlock>
-                                <TextBlock Grid.Row="1" Grid.Column="1" FontSize="12.5" Foreground="#9CA3AF">
-                                    Priority: <Run x:Name="InspectorPriority" Text="Normal (Auto-Boost)" Foreground="#38BDF8" FontWeight="SemiBold"/>
-                                </TextBlock>
-
-                                <TextBlock Grid.Row="2" Grid.Column="0" Grid.ColumnSpan="3" FontSize="12" Foreground="#9CA3AF" TextTrimming="CharacterEllipsis">
-                                    Source: <Hyperlink Click="InspectorSource_Click" Foreground="#38BDF8"><Run x:Name="InspectorSourceText" Text="—"/></Hyperlink>
-                                </TextBlock>
-                            </Grid>
-                        </StackPanel>
-                    </Grid>
-
-                    <!-- PROGRESS & CHUNKS TAB CONTENT (Multi-thread visualizer) -->
-                    <StackPanel x:Name="ProgressTabView" Grid.Row="1" Padding="18,14" Spacing="10" Visibility="Collapsed" AutomationProperties.AutomationId="Inspector_ProgressView">
-                        <TextBlock x:Name="InspectorChunkAllocationHeader" Text="Multi-Threaded Segment Allocation (0 Chunks)" FontSize="12.5" Foreground="#D1D5DB" FontWeight="SemiBold"/>
-                        <ItemsControl x:Name="ChunksGrid">
-                            <ItemsControl.ItemsPanel>
-                                <ItemsPanelTemplate>
-                                    <VariableSizedWrapGrid Orientation="Horizontal" MaximumRowsOrColumns="16"/>
-                                </ItemsPanelTemplate>
-                            </ItemsControl.ItemsPanel>
-                        </ItemsControl>
-                        <TextBlock Text="Blue = Completed Chunk   |   Cyan = Actively Streaming   |   Dark = Queued" FontSize="11.5" Foreground="#9CA3AF"/>
+                <!-- 2. Sort DropDownButton -->
+                <DropDownButton x:Name="SortDropDown"
+                                Style="{StaticResource CompactDropDownButtonStyle}"
+                                AutomationProperties.AutomationId="Toolbar_SortCombo"
+                                ToolTipService.ToolTip="Sort Downloads">
+                    <StackPanel Orientation="Horizontal" Spacing="6">
+                        <FontIcon Glyph="&#xE8CB;" FontSize="12" Foreground="#9E9E9E"/>
+                        <TextBlock x:Name="SortButtonLabel" Text="Newest" FontSize="12" Foreground="#E5E5E5"/>
                     </StackPanel>
+                    <DropDownButton.Flyout>
+                        <MenuFlyout Placement="BottomEdgeAlignedLeft">
+                            <MenuFlyoutItem Text="Newest" Tag="Newest" Click="SortMenuItem_Click">
+                                <MenuFlyoutItem.Icon>
+                                    <FontIcon Glyph="&#xE823;" />
+                                </MenuFlyoutItem.Icon>
+                            </MenuFlyoutItem>
+                            <MenuFlyoutItem Text="Largest Size" Tag="Largest Size" Click="SortMenuItem_Click">
+                                <MenuFlyoutItem.Icon>
+                                    <FontIcon Glyph="&#xE74C;" />
+                                </MenuFlyoutItem.Icon>
+                            </MenuFlyoutItem>
+                            <MenuFlyoutItem Text="Status" Tag="Status" Click="SortMenuItem_Click">
+                                <MenuFlyoutItem.Icon>
+                                    <FontIcon Glyph="&#xE9D9;" />
+                                </MenuFlyoutItem.Icon>
+                            </MenuFlyoutItem>
+                            <MenuFlyoutItem Text="File Name" Tag="File Name" Click="SortMenuItem_Click">
+                                <MenuFlyoutItem.Icon>
+                                    <FontIcon Glyph="&#xE8D2;" />
+                                </MenuFlyoutItem.Icon>
+                            </MenuFlyoutItem>
+                        </MenuFlyout>
+                    </DropDownButton.Flyout>
+                </DropDownButton>
 
-                    <!-- CONNECTIONS TAB CONTENT -->
-                    <Grid x:Name="ConnectionsTabView" Grid.Row="1" Padding="18,14" Visibility="Collapsed" AutomationProperties.AutomationId="Inspector_ConnectionsView">
-                        <StackPanel Spacing="8">
-                            <TextBlock Text="Active Peer / Thread Connections" FontSize="12.5" Foreground="#D1D5DB" FontWeight="SemiBold"/>
-                            <TextBlock Text="Multi-source acceleration connects across edge CDNs and peers for maximum throughput." FontSize="11.5" Foreground="#9CA3AF"/>
-                            <StackPanel Orientation="Horizontal" Spacing="16" Margin="0,8,0,0">
-                                <Border Background="#0D0F14" BorderBrush="#262934" BorderThickness="1" CornerRadius="6" Padding="12,8">
-                                    <StackPanel>
-                                        <TextBlock Text="Thread Connections" FontSize="11" Foreground="#6B7280"/>
-                                        <TextBlock x:Name="InspectorThreadConnections" Text="0 Active" FontSize="14" FontWeight="Bold" Foreground="#38BDF8"/>
-                                    </StackPanel>
-                                </Border>
-                                <Border Background="#0D0F14" BorderBrush="#262934" BorderThickness="1" CornerRadius="6" Padding="12,8">
-                                    <StackPanel>
-                                        <TextBlock Text="Protocol" FontSize="11" Foreground="#6B7280"/>
-                                        <TextBlock x:Name="InspectorProtocol" Text="Idle" FontSize="14" FontWeight="Bold" Foreground="#4ADE80"/>
-                                    </StackPanel>
-                                </Border>
-                            </StackPanel>
-                        </StackPanel>
-                    </Grid>
-                </Grid>
+                <!-- 3. Filter ("All files") DropDownButton consolidating Categories, Status, and Queues -->
+                <DropDownButton x:Name="FilterDropDown"
+                                Style="{StaticResource CompactDropDownButtonStyle}"
+                                AutomationProperties.AutomationId="Sidebar_CategoryList"
+                                ToolTipService.ToolTip="Filter by Category, Status, or Queue">
+                    <StackPanel Orientation="Horizontal" Spacing="6">
+                        <FontIcon x:Name="FilterButtonIcon" Glyph="&#xE71C;" FontSize="12" Foreground="#59B9F7"/>
+                        <TextBlock x:Name="FilterButtonLabel" Text="All files" FontSize="12" Foreground="#E5E5E5"/>
+                    </StackPanel>
+                    <DropDownButton.Flyout>
+                        <MenuFlyout Placement="BottomEdgeAlignedLeft">
+                            <!-- Categories Section -->
+                            <MenuFlyoutItem x:Name="FilterItemAll" Text="All Downloads" Tag="all" Click="FilterMenuItem_Click" AutomationProperties.AutomationId="Category_All">
+                                <MenuFlyoutItem.Icon>
+                                    <FontIcon Glyph="&#xE8B7;" Foreground="#59B9F7" />
+                                </MenuFlyoutItem.Icon>
+                            </MenuFlyoutItem>
+                            <MenuFlyoutItem x:Name="FilterItemVideo" Text="Video / Media" Tag="video" Click="FilterMenuItem_Click" AutomationProperties.AutomationId="Category_Video">
+                                <MenuFlyoutItem.Icon>
+                                    <FontIcon Glyph="&#xE714;" Foreground="#A78BFA" />
+                                </MenuFlyoutItem.Icon>
+                            </MenuFlyoutItem>
+                            <MenuFlyoutItem x:Name="FilterItemCompressed" Text="Compressed" Tag="compressed" Click="FilterMenuItem_Click" AutomationProperties.AutomationId="Category_Compressed">
+                                <MenuFlyoutItem.Icon>
+                                    <FontIcon Glyph="&#xF012;" Foreground="#FBBF24" />
+                                </MenuFlyoutItem.Icon>
+                            </MenuFlyoutItem>
+                            <MenuFlyoutItem x:Name="FilterItemPrograms" Text="Programs" Tag="programs" Click="FilterMenuItem_Click" AutomationProperties.AutomationId="Category_Programs">
+                                <MenuFlyoutItem.Icon>
+                                    <FontIcon Glyph="&#xE756;" Foreground="#60A5FA" />
+                                </MenuFlyoutItem.Icon>
+                            </MenuFlyoutItem>
+                            <MenuFlyoutItem x:Name="FilterItemDocuments" Text="Documents" Tag="documents" Click="FilterMenuItem_Click" AutomationProperties.AutomationId="Category_Documents">
+                                <MenuFlyoutItem.Icon>
+                                    <FontIcon Glyph="&#xE8A5;" Foreground="#818CF8" />
+                                </MenuFlyoutItem.Icon>
+                            </MenuFlyoutItem>
+                            <MenuFlyoutItem x:Name="FilterItemMusic" Text="Music" Tag="music" Click="FilterMenuItem_Click" AutomationProperties.AutomationId="Category_Music">
+                                <MenuFlyoutItem.Icon>
+                                    <FontIcon Glyph="&#xE8D6;" Foreground="#34D399" />
+                                </MenuFlyoutItem.Icon>
+                            </MenuFlyoutItem>
+                            <MenuFlyoutItem x:Name="FilterItemTorrents" Text="Torrents" Tag="torrents" Click="FilterMenuItem_Click" AutomationProperties.AutomationId="Category_Torrents">
+                                <MenuFlyoutItem.Icon>
+                                    <FontIcon Glyph="&#xE896;" Foreground="#38BDF8" />
+                                </MenuFlyoutItem.Icon>
+                            </MenuFlyoutItem>
+
+                            <MenuFlyoutSeparator/>
+
+                            <!-- Status Section -->
+                            <MenuFlyoutItem x:Name="FilterItemUnfinished" Text="Unfinished" Tag="unfinished" Click="FilterMenuItem_Click" AutomationProperties.AutomationId="Category_Unfinished">
+                                <MenuFlyoutItem.Icon>
+                                    <FontIcon Glyph="&#xE895;" Foreground="#FBBF24" />
+                                </MenuFlyoutItem.Icon>
+                            </MenuFlyoutItem>
+                            <MenuFlyoutItem x:Name="FilterItemFinished" Text="Finished" Tag="finished" Click="FilterMenuItem_Click" AutomationProperties.AutomationId="Category_Finished">
+                                <MenuFlyoutItem.Icon>
+                                    <FontIcon Glyph="&#xE73E;" Foreground="#2CCB70" />
+                                </MenuFlyoutItem.Icon>
+                            </MenuFlyoutItem>
+
+                            <MenuFlyoutSeparator/>
+
+                            <!-- Queues & Projects Section -->
+                            <MenuFlyoutItem x:Name="FilterItemQueueMain" Text="Main Queue (Q1)" Tag="queue_main" Click="FilterMenuItem_Click" AutomationProperties.AutomationId="Sidebar_Queue_Main">
+                                <MenuFlyoutItem.Icon>
+                                    <FontIcon Glyph="&#xE90B;" Foreground="#59B9F7" />
+                                </MenuFlyoutItem.Icon>
+                            </MenuFlyoutItem>
+                            <MenuFlyoutItem x:Name="FilterItemGrabber" Text="Grabber projects" Tag="grabber" Click="FilterMenuItem_Click" AutomationProperties.AutomationId="Sidebar_Queue_Grabber">
+                                <MenuFlyoutItem.Icon>
+                                    <FontIcon Glyph="&#xE774;" Foreground="#F472B6" />
+                                </MenuFlyoutItem.Icon>
+                            </MenuFlyoutItem>
+                        </MenuFlyout>
+                    </DropDownButton.Flyout>
+                </DropDownButton>
+            </StackPanel>
+
+            <!-- Right Controls: + Add download, Search Box, Master Menu -->
+            <!-- 1. Primary Sky-Blue "+ Add download" Button -->
+            <Button x:Name="AddDownloadBtn"
+                    Grid.Column="2"
+                    Click="AddDownload_Click"
+                    Style="{StaticResource PrimaryAddButtonStyle}"
+                    Margin="0,0,8,0"
+                    VerticalAlignment="Center"
+                    AutomationProperties.AutomationId="Toolbar_AddDownload"
+                    ToolTipService.ToolTip="Add New Download (Ctrl+N)">
+                <StackPanel Orientation="Horizontal" Spacing="6">
+                    <FontIcon Glyph="&#xE710;" FontSize="11.5" FontWeight="Bold"/>
+                    <TextBlock Text="Add download" FontSize="12.5" FontWeight="SemiBold"/>
+                </StackPanel>
+            </Button>
+
+            <!-- 2. Compact Search Box -->
+            <AutoSuggestBox x:Name="SearchBox"
+                            Grid.Column="3"
+                            Width="185"
+                            Margin="0,0,8,0"
+                            PlaceholderText="Search in downloads..."
+                            QueryIcon="Find"
+                            VerticalAlignment="Center"
+                            Text="{x:Bind ViewModel.SearchFilter, Mode=TwoWay}"
+                            TextChanged="SearchBox_TextChanged"
+                            Background="#232323"
+                            BorderBrush="#303030"
+                            CornerRadius="6"
+                            AutomationProperties.AutomationId="Toolbar_SearchBox"/>
+
+            <!-- 3. Master Menu Button (Hamburger Icon) -->
+            <Button x:Name="MasterMenuBtn"
+                    Grid.Column="4"
+                    Style="{StaticResource CompactPillButtonStyle}"
+                    Padding="10,6"
+                    VerticalAlignment="Center"
+                    AutomationProperties.AutomationId="MainWindow_MenuBar"
+                    ToolTipService.ToolTip="Global Actions &amp; Application Menu">
+                    <FontIcon Glyph="&#xE700;" FontSize="14" Foreground="#E5E5E5"/>
+                    <Button.Flyout>
+                        <MenuFlyout Placement="BottomEdgeAlignedRight">
+                            <!-- Quick Global Toolbar Actions -->
+                            <MenuFlyoutItem Text="Start All / Resume" Click="StartAllResume_Click" AutomationProperties.AutomationId="Toolbar_Resume">
+                                <MenuFlyoutItem.Icon>
+                                    <FontIcon Glyph="&#xE768;" Foreground="#2CCB70" />
+                                </MenuFlyoutItem.Icon>
+                            </MenuFlyoutItem>
+                            <MenuFlyoutItem Text="Stop All" Click="StopAll_Click" AutomationProperties.AutomationId="Toolbar_StopAll">
+                                <MenuFlyoutItem.Icon>
+                                    <FontIcon Glyph="&#xE71A;" Foreground="#F87171" />
+                                </MenuFlyoutItem.Icon>
+                            </MenuFlyoutItem>
+                            <MenuFlyoutItem Text="Scheduler" Click="Scheduler_Click" AutomationProperties.AutomationId="Toolbar_Scheduler">
+                                <MenuFlyoutItem.Icon>
+                                    <FontIcon Glyph="&#xE787;" Foreground="#A78BFA" />
+                                </MenuFlyoutItem.Icon>
+                            </MenuFlyoutItem>
+                            <MenuFlyoutItem Text="Grabber" Click="Grabber_Click" AutomationProperties.AutomationId="Toolbar_Grabber">
+                                <MenuFlyoutItem.Icon>
+                                    <FontIcon Glyph="&#xE774;" Foreground="#59B9F7" />
+                                </MenuFlyoutItem.Icon>
+                            </MenuFlyoutItem>
+                            <MenuFlyoutItem Text="Clear Done" Click="ClearCompleted_Click">
+                                <MenuFlyoutItem.Icon>
+                                    <FontIcon Glyph="&#xE75C;" />
+                                </MenuFlyoutItem.Icon>
+                            </MenuFlyoutItem>
+
+                            <MenuFlyoutSeparator/>
+
+                            <!-- Consolidated Top MenuBar Sub-Menus -->
+                            <MenuFlyoutSubItem Text="Tasks" AutomationProperties.AutomationId="Menu_Tasks">
+                                <MenuFlyoutSubItem.Icon>
+                                    <FontIcon Glyph="&#xE710;" />
+                                </MenuFlyoutSubItem.Icon>
+                                <MenuFlyoutItem Text="Add New Download..." Click="AddDownload_Click" AutomationProperties.AutomationId="Menu_Tasks_AddDownload">
+                                    <MenuFlyoutItem.KeyboardAccelerators>
+                                        <KeyboardAccelerator Modifiers="Control" Key="N"/>
+                                    </MenuFlyoutItem.KeyboardAccelerators>
+                                    <MenuFlyoutItem.Icon>
+                                        <FontIcon Glyph="&#xE710;" />
+                                    </MenuFlyoutItem.Icon>
+                                </MenuFlyoutItem>
+                                <MenuFlyoutItem Text="Download Video / Media..." Click="MediaDownload_Click" AutomationProperties.AutomationId="Menu_Tasks_MediaDownload">
+                                    <MenuFlyoutItem.KeyboardAccelerators>
+                                        <KeyboardAccelerator Modifiers="Control" Key="M"/>
+                                    </MenuFlyoutItem.KeyboardAccelerators>
+                                    <MenuFlyoutItem.Icon>
+                                        <FontIcon Glyph="&#xE714;" />
+                                    </MenuFlyoutItem.Icon>
+                                </MenuFlyoutItem>
+                                <MenuFlyoutItem Text="Open Torrent File / Magnet..." Click="AddTorrent_Click" AutomationProperties.AutomationId="Menu_Tasks_AddTorrent">
+                                    <MenuFlyoutItem.KeyboardAccelerators>
+                                        <KeyboardAccelerator Modifiers="Control" Key="T"/>
+                                    </MenuFlyoutItem.KeyboardAccelerators>
+                                    <MenuFlyoutItem.Icon>
+                                        <FontIcon Glyph="&#xE896;" />
+                                    </MenuFlyoutItem.Icon>
+                                </MenuFlyoutItem>
+                                <MenuFlyoutItem Text="Create .torrent File..." Click="CreateTorrent_Click" AutomationProperties.AutomationId="Menu_Tasks_CreateTorrent">
+                                    <MenuFlyoutItem.Icon>
+                                        <FontIcon Glyph="&#xE82D;" />
+                                    </MenuFlyoutItem.Icon>
+                                </MenuFlyoutItem>
+                                <MenuFlyoutItem Text="Batch Download..." Click="BatchDownload_Click" AutomationProperties.AutomationId="Menu_Tasks_BatchDownload">
+                                    <MenuFlyoutItem.KeyboardAccelerators>
+                                        <KeyboardAccelerator Modifiers="Control" Key="B"/>
+                                    </MenuFlyoutItem.KeyboardAccelerators>
+                                </MenuFlyoutItem>
+                                <MenuFlyoutItem Text="Site Grabber Project..." Click="Grabber_Click" AutomationProperties.AutomationId="Menu_Tasks_Grabber">
+                                    <MenuFlyoutItem.KeyboardAccelerators>
+                                        <KeyboardAccelerator Modifiers="Control" Key="G"/>
+                                    </MenuFlyoutItem.KeyboardAccelerators>
+                                    <MenuFlyoutItem.Icon>
+                                        <FontIcon Glyph="&#xE774;" />
+                                    </MenuFlyoutItem.Icon>
+                                </MenuFlyoutItem>
+                                <MenuFlyoutSeparator/>
+                                <MenuFlyoutItem Text="Import URLs from Clipboard" Click="Import_Click" AutomationProperties.AutomationId="Menu_Tasks_ImportClipboard" />
+                                <MenuFlyoutItem Text="Export Download List" Click="Export_Click" AutomationProperties.AutomationId="Menu_Tasks_ExportList" />
+                                <MenuFlyoutSeparator/>
+                                <MenuFlyoutItem Text="Minimize to System Tray" Click="MinimizeToTray_Click" AutomationProperties.AutomationId="Menu_Tasks_MinimizeToTray" />
+                                <MenuFlyoutItem Text="Exit" Click="Exit_Click" AutomationProperties.AutomationId="Menu_Tasks_Exit" />
+                            </MenuFlyoutSubItem>
+
+                            <MenuFlyoutSubItem Text="File" AutomationProperties.AutomationId="Menu_File">
+                                <MenuFlyoutSubItem.Icon>
+                                    <FontIcon Glyph="&#xE8A5;" />
+                                </MenuFlyoutSubItem.Icon>
+                                <MenuFlyoutItem Text="Resume Download" Click="ResumeSelected_Click" AutomationProperties.AutomationId="Menu_File_Resume">
+                                    <MenuFlyoutItem.KeyboardAccelerators>
+                                        <KeyboardAccelerator Modifiers="Control" Key="R"/>
+                                    </MenuFlyoutItem.KeyboardAccelerators>
+                                    <MenuFlyoutItem.Icon>
+                                        <FontIcon Glyph="&#xE768;" />
+                                    </MenuFlyoutItem.Icon>
+                                </MenuFlyoutItem>
+                                <MenuFlyoutItem Text="Stop Download" Click="PauseSelected_Click" AutomationProperties.AutomationId="Menu_File_Stop">
+                                    <MenuFlyoutItem.KeyboardAccelerators>
+                                        <KeyboardAccelerator Modifiers="Control" Key="S"/>
+                                    </MenuFlyoutItem.KeyboardAccelerators>
+                                    <MenuFlyoutItem.Icon>
+                                        <FontIcon Glyph="&#xE769;" />
+                                    </MenuFlyoutItem.Icon>
+                                </MenuFlyoutItem>
+                                <MenuFlyoutItem Text="Stop All" Click="StopAll_Click" AutomationProperties.AutomationId="Menu_File_StopAll">
+                                    <MenuFlyoutItem.Icon>
+                                        <FontIcon Glyph="&#xE71A;" />
+                                    </MenuFlyoutItem.Icon>
+                                </MenuFlyoutItem>
+                                <MenuFlyoutSeparator/>
+                                <MenuFlyoutItem Text="Delete" Click="DeleteSelected_Click" AutomationProperties.AutomationId="Menu_File_Delete">
+                                    <MenuFlyoutItem.KeyboardAccelerators>
+                                        <KeyboardAccelerator Key="Delete" />
+                                    </MenuFlyoutItem.KeyboardAccelerators>
+                                    <MenuFlyoutItem.Icon>
+                                        <FontIcon Glyph="&#xE74D;" />
+                                    </MenuFlyoutItem.Icon>
+                                </MenuFlyoutItem>
+                                <MenuFlyoutItem Text="Delete All Completed" Click="ClearCompleted_Click" AutomationProperties.AutomationId="Menu_File_ClearCompleted">
+                                    <MenuFlyoutItem.Icon>
+                                        <FontIcon Glyph="&#xE75C;" />
+                                    </MenuFlyoutItem.Icon>
+                                </MenuFlyoutItem>
+                            </MenuFlyoutSubItem>
+
+                            <MenuFlyoutSubItem Text="Downloads" AutomationProperties.AutomationId="Menu_Downloads">
+                                <MenuFlyoutSubItem.Icon>
+                                    <FontIcon Glyph="&#xE896;" />
+                                </MenuFlyoutSubItem.Icon>
+                                <MenuFlyoutItem Text="Start Queue" Click="StartQueue_Click" AutomationProperties.AutomationId="Menu_Downloads_StartQueue">
+                                    <MenuFlyoutItem.Icon>
+                                        <FontIcon Glyph="&#xE768;" />
+                                    </MenuFlyoutItem.Icon>
+                                </MenuFlyoutItem>
+                                <MenuFlyoutItem Text="Stop Queue" Click="StopQueue_Click" AutomationProperties.AutomationId="Menu_Downloads_StopQueue">
+                                    <MenuFlyoutItem.Icon>
+                                        <FontIcon Glyph="&#xE769;" />
+                                    </MenuFlyoutItem.Icon>
+                                </MenuFlyoutItem>
+                                <MenuFlyoutSeparator/>
+                                <MenuFlyoutItem Text="Scheduler &amp; Queues" Click="Scheduler_Click" AutomationProperties.AutomationId="Menu_Downloads_Scheduler">
+                                    <MenuFlyoutItem.Icon>
+                                        <FontIcon Glyph="&#xE787;" />
+                                    </MenuFlyoutItem.Icon>
+                                </MenuFlyoutItem>
+                                <MenuFlyoutItem Text="Options / Settings" Click="Options_Click" AutomationProperties.AutomationId="Menu_Downloads_Options">
+                                    <MenuFlyoutItem.Icon>
+                                        <FontIcon Glyph="&#xE713;" />
+                                    </MenuFlyoutItem.Icon>
+                                </MenuFlyoutItem>
+                            </MenuFlyoutSubItem>
+
+                            <MenuFlyoutSubItem Text="View" AutomationProperties.AutomationId="Menu_View">
+                                <MenuFlyoutSubItem.Icon>
+                                    <FontIcon Glyph="&#xE890;" />
+                                </MenuFlyoutSubItem.Icon>
+                                <ToggleMenuFlyoutItem x:Name="ShowInspectorMenuItem" Text="Show Bottom Inspector" IsChecked="False" Click="ToggleInspector_Click" AutomationProperties.AutomationId="Menu_View_ToggleInspector"/>
+                                <ToggleMenuFlyoutItem x:Name="DropTargetMenuItem" Text="Floating Drop Target" Click="DropTarget_Click" AutomationProperties.AutomationId="Menu_View_DropTarget"/>
+                            </MenuFlyoutSubItem>
+
+                            <MenuFlyoutItem Text="Settings" Click="Options_Click" AutomationProperties.AutomationId="Toolbar_Options">
+                                <MenuFlyoutItem.Icon>
+                                    <FontIcon Glyph="&#xE713;" />
+                                </MenuFlyoutItem.Icon>
+                            </MenuFlyoutItem>
+
+                            <MenuFlyoutSubItem Text="Help" AutomationProperties.AutomationId="Menu_Help">
+                                <MenuFlyoutSubItem.Icon>
+                                    <FontIcon Glyph="&#xE897;" />
+                                </MenuFlyoutSubItem.Icon>
+                                <MenuFlyoutItem Text="Export Diagnostic Report..." Click="Diagnostics_Click" AutomationProperties.AutomationId="Menu_Help_Diagnostics">
+                                    <MenuFlyoutItem.KeyboardAccelerators>
+                                        <KeyboardAccelerator Key="D" Modifiers="Control" />
+                                    </MenuFlyoutItem.KeyboardAccelerators>
+                                    <MenuFlyoutItem.Icon>
+                                        <FontIcon Glyph="&#xE9F9;" />
+                                    </MenuFlyoutItem.Icon>
+                                </MenuFlyoutItem>
+                                <MenuFlyoutItem Text="Open Logs Folder" Click="OpenLogsFolder_Click" AutomationProperties.AutomationId="Menu_Help_OpenLogs">
+                                    <MenuFlyoutItem.Icon>
+                                        <FontIcon Glyph="&#xED25;" />
+                                    </MenuFlyoutItem.Icon>
+                                </MenuFlyoutItem>
+                                <MenuFlyoutItem Text="View Torrent Logs" Click="ViewTorrentLogs_Click" AutomationProperties.AutomationId="Menu_Help_TorrentLogs">
+                                    <MenuFlyoutItem.Icon>
+                                        <FontIcon Glyph="&#xE81C;" />
+                                    </MenuFlyoutItem.Icon>
+                                </MenuFlyoutItem>
+                                <MenuFlyoutItem Text="Export Torrent Diagnostics..." Click="ExportTorrentDiagnostics_Click" AutomationProperties.AutomationId="Menu_Help_ExportTorrentLogs">
+                                    <MenuFlyoutItem.Icon>
+                                        <FontIcon Glyph="&#xEDE1;" />
+                                    </MenuFlyoutItem.Icon>
+                                </MenuFlyoutItem>
+                                <MenuFlyoutItem Text="Documentation" Click="Docs_Click" AutomationProperties.AutomationId="Menu_Help_Docs"/>
+                                <MenuFlyoutItem Text="Check for Updates" Click="Updates_Click" AutomationProperties.AutomationId="Menu_Help_Updates"/>
+                                <MenuFlyoutSeparator/>
+                                <MenuFlyoutItem Text="About SwiftGet" Click="About_Click" AutomationProperties.AutomationId="Menu_Help_About"/>
+                            </MenuFlyoutSubItem>
+
+                            <MenuFlyoutSubItem Text="License" AutomationProperties.AutomationId="Menu_License">
+                                <MenuFlyoutSubItem.Icon>
+                                    <FontIcon Glyph="&#xE8D7;" />
+                                </MenuFlyoutSubItem.Icon>
+                                <MenuFlyoutItem Text="License Details..." Click="About_Click" AutomationProperties.AutomationId="Menu_License_Details"/>
+                            </MenuFlyoutSubItem>
+                        </MenuFlyout>
+                    </Button.Flyout>
+                </Button>
+        </Grid>
+
+        <!-- ======================================================== -->
+        <!-- ROW 2 (*): MAIN WORKSPACE & DOWNLOAD LIST CONTAINER      -->
+        <!-- ======================================================== -->
+        <Grid Grid.Row="2"
+              Margin="16,4,16,4"
+              AllowDrop="True"
+              DragOver="DropZone_DragOver"
+              DragLeave="DropZone_DragLeave"
+              Drop="DropZone_Drop"
+              AutomationProperties.AutomationId="DropZone_Container">
+
+            <!-- Dashed Rounded Rectangle Surrounding Workspace -->
+            <Rectangle x:Name="WorkspaceDashedBorder"
+                       Stroke="#2E2E2E"
+                       StrokeThickness="1.5"
+                       StrokeDashArray="5,3"
+                       RadiusX="8"
+                       RadiusY="8"
+                       Fill="#161616"/>
+
+            <!-- Compact Download ListView (No Bulky Table Headers) -->
+            <ListView x:Name="DownloadsListView"
+                      Margin="6"
+                      Padding="0"
+                      AutomationProperties.AutomationId="Downloads_ListView"
+                      ItemsSource="{x:Bind ViewModel.FilteredDownloads, Mode=OneWay}"
+                      SelectedItem="{x:Bind ViewModel.SelectedItem, Mode=TwoWay}"
+                      SelectionMode="Single"
+                      SelectionChanged="DownloadsListView_SelectionChanged"
+                      DoubleTapped="DownloadListView_DoubleTapped"
+                      RightTapped="DownloadListView_RightTapped"
+                      KeyDown="DownloadListView_KeyDown">
+
+                <ListView.ItemContainerStyle>
+                    <Style TargetType="ListViewItem">
+                        <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+                        <Setter Property="Padding" Value="0" />
+                        <Setter Property="Margin" Value="0" />
+                        <Setter Property="MinHeight" Value="0" />
+                    </Style>
+                </ListView.ItemContainerStyle>
+
+                <!-- Right-Click Context Menu -->
+                <ListView.ContextFlyout>
+                    <MenuFlyout AutomationProperties.AutomationId="Downloads_ContextMenu">
+                        <MenuFlyoutItem Text="Resume" Click="ResumeContext_Click" AutomationProperties.AutomationId="ContextMenu_Resume">
+                            <MenuFlyoutItem.Icon>
+                                <FontIcon Glyph="&#xE768;" />
+                            </MenuFlyoutItem.Icon>
+                        </MenuFlyoutItem>
+                        <MenuFlyoutItem Text="Pause / Stop" Click="StopContext_Click" AutomationProperties.AutomationId="ContextMenu_Stop">
+                            <MenuFlyoutItem.Icon>
+                                <FontIcon Glyph="&#xE769;" />
+                            </MenuFlyoutItem.Icon>
+                        </MenuFlyoutItem>
+                        <MenuFlyoutSeparator />
+                        <MenuFlyoutItem Text="Toggle Bottom Inspector" Click="ToggleInspector_Click" AutomationProperties.AutomationId="ContextMenu_Inspector">
+                            <MenuFlyoutItem.Icon>
+                                <FontIcon Glyph="&#xE946;" />
+                            </MenuFlyoutItem.Icon>
+                        </MenuFlyoutItem>
+                        <MenuFlyoutItem Text="Download Details..." Click="OpenDetails_Click" AutomationProperties.AutomationId="ContextMenu_Details" />
+                        <MenuFlyoutItem Text="Copy URL to Clipboard" Click="CopyUrl_Click" AutomationProperties.AutomationId="ContextMenu_CopyUrl" />
+                        <MenuFlyoutItem Text="Open Containing Folder" Click="OpenFolder_Click" AutomationProperties.AutomationId="ContextMenu_OpenFolder" />
+                        <MenuFlyoutSeparator />
+                        <MenuFlyoutItem Text="Force Recheck" Click="ForceRecheck_Click" AutomationProperties.AutomationId="ContextMenu_ForceRecheck">
+                            <MenuFlyoutItem.Icon>
+                                <FontIcon Glyph="&#xE72C;" />
+                            </MenuFlyoutItem.Icon>
+                        </MenuFlyoutItem>
+                        <MenuFlyoutItem Text="Force Announce to Trackers" Click="ForceAnnounce_Click" AutomationProperties.AutomationId="ContextMenu_ForceAnnounce">
+                            <MenuFlyoutItem.Icon>
+                                <FontIcon Glyph="&#xE753;" />
+                            </MenuFlyoutItem.Icon>
+                        </MenuFlyoutItem>
+                        <MenuFlyoutItem Text="Move Storage Folder..." Click="MoveStorage_Click" AutomationProperties.AutomationId="ContextMenu_MoveStorage">
+                            <MenuFlyoutItem.Icon>
+                                <FontIcon Glyph="&#xE8DE;" />
+                            </MenuFlyoutItem.Icon>
+                        </MenuFlyoutItem>
+                        <MenuFlyoutItem Text="Copy Magnet / Info Hash" Click="CopyMagnet_Click" AutomationProperties.AutomationId="ContextMenu_CopyMagnet">
+                            <MenuFlyoutItem.Icon>
+                                <FontIcon Glyph="&#xE896;" />
+                            </MenuFlyoutItem.Icon>
+                        </MenuFlyoutItem>
+                        <MenuFlyoutItem Text="Toggle Sequential Download" Click="ToggleSequential_Click" AutomationProperties.AutomationId="ContextMenu_ToggleSequential">
+                            <MenuFlyoutItem.Icon>
+                                <FontIcon Glyph="&#xE8B9;" />
+                            </MenuFlyoutItem.Icon>
+                        </MenuFlyoutItem>
+                        <MenuFlyoutSeparator />
+                        <MenuFlyoutItem Text="Remove from list" Click="DeleteContext_Click" AutomationProperties.AutomationId="ContextMenu_Delete">
+                            <MenuFlyoutItem.Icon>
+                                <FontIcon Glyph="&#xE74D;" />
+                            </MenuFlyoutItem.Icon>
+                        </MenuFlyoutItem>
+                        <MenuFlyoutItem Text="Remove and delete downloaded files" Click="DeleteWithFiles_Click" AutomationProperties.AutomationId="ContextMenu_DeleteWithFiles">
+                            <MenuFlyoutItem.Icon>
+                                <FontIcon Glyph="&#xE74D;" Foreground="#F87171" />
+                            </MenuFlyoutItem.Icon>
+                        </MenuFlyoutItem>
+                    </MenuFlyout>
+                </ListView.ContextFlyout>
+
+                <!-- Sleek 2-Line Compact Card Template -->
+                <ListView.ItemTemplate>
+                    <DataTemplate x:DataType="vm:DownloadItemViewModel">
+                        <Border Padding="10,8"
+                                Margin="0,0,0,4"
+                                Background="#1A1A1A"
+                                BorderBrush="#262626"
+                                BorderThickness="1"
+                                CornerRadius="6">
+                            <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="10">
+                                <!-- Left: Selection CheckBox + File Type Icon (24x24) -->
+                                <StackPanel Grid.Column="0" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+                                    <CheckBox IsChecked="{x:Bind IsSelected, Mode=TwoWay}" MinWidth="0" Padding="0" VerticalAlignment="Center"/>
+                                    <Border Width="24" Height="24" Background="#232323" CornerRadius="5" VerticalAlignment="Center">
+                                        <FontIcon Glyph="{x:Bind IconGlyph, Mode=OneWay}"
+                                                  Foreground="{x:Bind AccentColor, Mode=OneWay}"
+                                                  FontSize="13"
+                                                  HorizontalAlignment="Center"
+                                                  VerticalAlignment="Center"/>
+                                    </Border>
+                                </StackPanel>
+
+                                <!-- Center: 3 Compact Rows -->
+                                <Grid Grid.Column="1" RowDefinitions="Auto,Auto,Auto" VerticalAlignment="Center">
+                                    <!-- Top Line: File Name on left; Status badge + Speed + ETA on right -->
+                                    <Grid Grid.Row="0" ColumnDefinitions="*,Auto" ColumnSpacing="8">
+                                        <TextBlock Grid.Column="0"
+                                                   Text="{x:Bind FileName, Mode=OneWay}"
+                                                   Foreground="#F0F0F0"
+                                                   FontWeight="SemiBold"
+                                                   FontSize="13"
+                                                   TextTrimming="CharacterEllipsis"
+                                                   VerticalAlignment="Center"/>
+                                        <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+                                            <TextBlock Text="{x:Bind StatusText, Mode=OneWay}"
+                                                       Foreground="{x:Bind StatusColor, Mode=OneWay}"
+                                                       FontSize="11.5"
+                                                       FontWeight="SemiBold"
+                                                       VerticalAlignment="Center"/>
+                                            <TextBlock Text="{x:Bind FormattedSpeed, Mode=OneWay}"
+                                                       Foreground="#3B9EFF"
+                                                       FontSize="11.5"
+                                                       FontWeight="Medium"
+                                                       VerticalAlignment="Center"/>
+                                            <TextBlock Text="{x:Bind FormattedTimeLeft, Mode=OneWay}"
+                                                       Foreground="#8C8C8C"
+                                                       FontSize="11"
+                                                       VerticalAlignment="Center"/>
+                                        </StackPanel>
+                                    </Grid>
+
+                                    <!-- Middle Line: Slim ProgressBar -->
+                                    <ProgressBar Grid.Row="1"
+                                                 Value="{x:Bind Progress, Mode=OneWay}"
+                                                 IsIndeterminate="{x:Bind IsIndeterminate, Mode=OneWay}"
+                                                 Maximum="100"
+                                                 Foreground="{x:Bind StatusColor, Mode=OneWay}"
+                                                 Background="#2A2A2A"
+                                                 Height="3"
+                                                 Margin="0,4,0,4"
+                                                 CornerRadius="1.5"/>
+
+                                    <!-- Bottom Line: Secondary Metadata -->
+                                    <TextBlock Grid.Row="2"
+                                               Text="{x:Bind SecondaryMetadataText, Mode=OneWay}"
+                                               Foreground="#808080"
+                                               FontSize="11"
+                                               TextTrimming="CharacterEllipsis"/>
+                                </Grid>
+
+                                <!-- Right: Contextual Action Bar -->
+                                <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="4" VerticalAlignment="Center">
+                                    <Button Style="{StaticResource RowActionButtonStyle}"
+                                            Click="RowResumePause_Click"
+                                            ToolTipService.ToolTip="Resume / Pause">
+                                        <FontIcon Glyph="{x:Bind ResumePauseGlyph, Mode=OneWay}" FontSize="11" Foreground="#2CCB70"/>
+                                    </Button>
+                                    <Button Style="{StaticResource RowActionButtonStyle}"
+                                            Click="RowStop_Click"
+                                            ToolTipService.ToolTip="Stop">
+                                        <FontIcon Glyph="&#xE71A;" FontSize="10" Foreground="#FBBF24"/>
+                                    </Button>
+                                    <Button Style="{StaticResource RowActionButtonStyle}"
+                                            Click="RowDelete_Click"
+                                            ToolTipService.ToolTip="Delete">
+                                        <FontIcon Glyph="&#xE74D;" FontSize="11" Foreground="#A0A0A0"/>
+                                    </Button>
+                                    <Button Style="{StaticResource RowActionButtonStyle}"
+                                            Click="RowInspector_Click"
+                                            ToolTipService.ToolTip="Info / Inspector">
+                                        <FontIcon Glyph="&#xE946;" FontSize="11" Foreground="#59B9F7"/>
+                                    </Button>
+                                </StackPanel>
+                            </Grid>
+                        </Border>
+                    </DataTemplate>
+                </ListView.ItemTemplate>
+            </ListView>
+
+            <!-- Centered Empty State & Drag-Drop Overlay -->
+            <Grid x:Name="EmptyStateOverlay"
+                  Background="Transparent"
+                  PointerPressed="DropZone_PointerPressed"
+                  Visibility="Visible">
+                <StackPanel VerticalAlignment="Center" HorizontalAlignment="Center" Spacing="10">
+                    <FontIcon x:Name="EmptyStateIcon" Glyph="&#xE896;" FontSize="28" Foreground="#606060" HorizontalAlignment="Center"/>
+                    <TextBlock x:Name="EmptyStateText"
+                               Text="Drag-and-drop URL or torrent file"
+                               Foreground="#606060"
+                               FontSize="13"
+                               FontWeight="Medium"
+                               HorizontalAlignment="Center"/>
+                </StackPanel>
             </Grid>
-        </SplitView>
+        </Grid>
 
         <!-- ======================================================== -->
-        <!-- 4. BOTTOM STATUS BAR (SNAIL MODE + LIVE TELEMETRY)       -->
+        <!-- ROW 3 (Auto / 185px): FDM-STYLE BOTTOM DETAILS DRAWER    -->
         <!-- ======================================================== -->
-        <Grid Grid.Row="3" Background="#0D0E12" Padding="12,0" BorderBrush="#22242C" BorderThickness="0,1,0,0" AutomationProperties.AutomationId="MainWindow_StatusBar">
+        <views:DownloadDetailsPanel x:Name="DetailsPanel"
+                Grid.Row="3"
+                Height="{x:Bind DetailsViewModel.PanelHeight, Mode=OneWay}"
+                Visibility="{x:Bind DetailsViewModel.PanelVisibility, Mode=OneWay}"
+                ViewModel="{x:Bind DetailsViewModel, Mode=OneWay}"
+                AutomationProperties.AutomationId="BottomInspector_Panel"/>
+
+        <!-- ======================================================== -->
+        <!-- ROW 4 (38px): COMPACT STATUS FOOTER                      -->
+        <!-- ======================================================== -->
+        <Grid Grid.Row="4"
+              Background="#141414"
+              Padding="16,0,16,0"
+              BorderBrush="#222222"
+              BorderThickness="0,1,0,0"
+              AutomationProperties.AutomationId="MainWindow_StatusBar">
             <Grid.ColumnDefinitions>
-                <ColumnDefinition Width="Auto"/>
                 <ColumnDefinition Width="Auto"/>
                 <ColumnDefinition Width="*"/>
                 <ColumnDefinition Width="Auto"/>
             </Grid.ColumnDefinitions>
 
-            <!-- Snail Mode Toggle (From Reference 3) -->
-            <ToggleButton x:Name="SnailModeBtn" Grid.Column="0" Padding="8,3" CornerRadius="4"
-                          AutomationProperties.AutomationId="StatusBar_SnailMode"
-                          Click="SnailModeBtn_Click"
-                          Background="#1E2028" BorderBrush="#2E323E" Margin="0,0,10,0"
-                          ToolTipService.ToolTip="Snail Mode (Limit Bandwidth for Gaming/Browsing)">
-                <StackPanel Orientation="Horizontal" Spacing="6">
-                    <TextBlock x:Name="SnailModeText" Text="SNAIL OFF" FontSize="10.5" FontWeight="Bold" Foreground="#9CA3AF"/>
-                    <FontIcon Glyph="&#xEC4A;" FontSize="12" Foreground="#38BDF8"/>
-                </StackPanel>
-            </ToggleButton>
+            <!-- Left StackPanel: Snail Mode Pill Toggle + Traffic & Priority Pill -->
+            <StackPanel Grid.Column="0" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+                <!-- Snail Mode Pill Toggle -->
+                <ToggleButton x:Name="SnailModeBtn"
+                              Padding="6,3"
+                              CornerRadius="4"
+                              AutomationProperties.AutomationId="StatusBar_SnailMode"
+                              Click="SnailModeBtn_Click"
+                              Background="#232323"
+                              BorderBrush="#303030"
+                              BorderThickness="1"
+                              ToolTipService.ToolTip="Snail Mode (Limit Bandwidth for Gaming/Browsing)">
+                    <StackPanel Orientation="Horizontal" Spacing="5">
+                        <FontIcon Glyph="&#xEC4A;" FontSize="11" Foreground="#59B9F7"/>
+                        <TextBlock x:Name="SnailModeText" Text="OFF" FontSize="10" FontWeight="Bold" Foreground="#9A9A9A"/>
+                    </StackPanel>
+                </ToggleButton>
 
-            <!-- Live Download / Upload Speeds + Priority Badge -->
-            <Border Grid.Column="1" Background="#171920" BorderBrush="#262934" BorderThickness="1" CornerRadius="4" Padding="10,3">
-                <StackPanel Orientation="Horizontal" Spacing="12">
-                    <TextBlock FontSize="11.5" Foreground="#D1D5DB">
-                        <Run Text="▼" Foreground="#38BDF8"/> <Run x:Name="FooterDownSpeed" AutomationProperties.AutomationId="StatusBar_DownSpeed" Text="{x:Bind ViewModel.TotalTransferRate, Mode=OneWay}" FontWeight="SemiBold"/>
-                    </TextBlock>
-                    <TextBlock FontSize="11.5" Foreground="#D1D5DB">
-                        <Run Text="▲" Foreground="#4ADE80"/> <Run x:Name="FooterUpSpeed" AutomationProperties.AutomationId="StatusBar_UpSpeed" Text="0 B/s"/>
-                    </TextBlock>
-                    <Border Background="#132E21" CornerRadius="3" Padding="5,1">
-                        <TextBlock Text="HIGH" FontSize="10" FontWeight="Bold" Foreground="#4ADE80"/>
-                    </Border>
-                </StackPanel>
-            </Border>
+                <!-- Traffic & Priority Pill -->
+                <Border Background="#1E1E1E" BorderBrush="#2A2A2A" BorderThickness="1" CornerRadius="4" Padding="8,3">
+                    <StackPanel Orientation="Horizontal" Spacing="10" VerticalAlignment="Center">
+                        <TextBlock FontSize="11" Foreground="#D4D4D4" VerticalAlignment="Center">
+                            <Run Text="▼" Foreground="#59B9F7"/> <Run x:Name="FooterDownSpeed" AutomationProperties.AutomationId="StatusBar_DownSpeed" Text="0 B/s" FontWeight="SemiBold"/>
+                        </TextBlock>
+                        <TextBlock FontSize="11" Foreground="#D4D4D4" VerticalAlignment="Center">
+                            <Run Text="▲" Foreground="#2CCB70"/> <Run x:Name="FooterUpSpeed" AutomationProperties.AutomationId="StatusBar_UpSpeed" Text="0 B/s"/>
+                        </TextBlock>
+                        <Button x:Name="PriorityBadgeBtn"
+                                Click="PriorityBadge_Click"
+                                Background="#132E21"
+                                BorderBrush="#1F4B35"
+                                BorderThickness="1"
+                                CornerRadius="3"
+                                Padding="5,1"
+                                MinHeight="0"
+                                MinWidth="0"
+                                ToolTipService.ToolTip="Bandwidth Priority Mode">
+                            <TextBlock x:Name="PriorityBadgeText" Text="📈 HIGH" FontSize="9.5" FontWeight="Bold" Foreground="#2CCB70"/>
+                        </Button>
+                    </StackPanel>
+                </Border>
+            </StackPanel>
 
-            <!-- Selected Item Ticker -->
-            <TextBlock x:Name="FooterSelectedTicker" Grid.Column="2" Margin="16,0"
-                       AutomationProperties.AutomationId="StatusBar_SelectedTicker"
-                       Text="No download selected"
-                       Foreground="#6B7280" FontSize="11.5" VerticalAlignment="Center" TextTrimming="CharacterEllipsis"/>
-
-            <!-- Disk Free Space Telemetry (From Reference 1) -->
-            <TextBlock Grid.Column="3" Text="{x:Bind ViewModel.FreeDiskSpace, Mode=OneWay}" Foreground="#9CA3AF" FontSize="11.5" VerticalAlignment="Center"/>
+            <!-- Right StackPanel: Selected Item Short Label + Free Disk Space Indicator -->
+            <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="10" VerticalAlignment="Center">
+                <TextBlock x:Name="FooterSelectedTicker"
+                           AutomationProperties.AutomationId="StatusBar_SelectedTicker"
+                           Text=""
+                           Visibility="Collapsed"
+                           Foreground="#777777"
+                           FontSize="11"
+                           MaxWidth="195"
+                           TextTrimming="CharacterEllipsis"
+                           VerticalAlignment="Center"/>
+                <TextBlock x:Name="FooterSelectedSeparator"
+                           Text="•"
+                           Visibility="Collapsed"
+                           Foreground="#444444"
+                           FontSize="11"
+                           VerticalAlignment="Center"/>
+                <TextBlock Text="{x:Bind ViewModel.FreeDiskSpace, Mode=OneWay}"
+                           Foreground="#777777"
+                           FontSize="11"
+                           VerticalAlignment="Center"/>
+            </StackPanel>
         </Grid>
     </Grid>
 </Window>

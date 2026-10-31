@@ -126,7 +126,7 @@ public class QueueManager : IQueueManager, IDisposable
         {
             var items = await _db.GetDownloadsByQueueAsync(queue.Id, ct).ConfigureAwait(false);
             var eligibleItems = items
-                .Where(i => i.Status != DownloadStatus.Completed && i.Status != DownloadStatus.Failed)
+                .Where(i => i.JobKind == JobKind.Http && i.Status != DownloadStatus.Completed && i.Status != DownloadStatus.Failed)
                 .OrderBy(i => i.Priority)
                 .ThenBy(i => i.CreatedAtUtc)
                 .ToList();

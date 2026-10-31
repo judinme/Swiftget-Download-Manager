@@ -58,24 +58,6 @@ public static class TrackerSafetyValidator
             return true;
         }
 
-        // As an additional defense, try synchronous DNS resolve with short timeout if needed
-        try
-        {
-            var addresses = Dns.GetHostAddresses(host);
-            foreach (var addr in addresses)
-            {
-                if (IsPrivateOrLoopback(addr) && !allowLocalTrackers)
-                {
-                    reason = $"Tracker host '{host}' resolves to private/loopback IP '{addr}', which is disallowed for SSRF protection.";
-                    return false;
-                }
-            }
-        }
-        catch
-        {
-            // If DNS resolution fails here (e.g. offline during add), allow it through to be resolved by tracker manager at runtime
-        }
-
         return true;
     }
 

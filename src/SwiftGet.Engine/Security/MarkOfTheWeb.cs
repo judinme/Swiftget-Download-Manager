@@ -40,7 +40,7 @@ public static class MarkOfTheWeb
             await File.WriteAllTextAsync(adsPath, sb.ToString(), Encoding.ASCII, ct).ConfigureAwait(false);
             return true;
         }
-        catch (Exception ex) when (ex is IOException or NotSupportedException or UnauthorizedAccessException)
+        catch (Exception ex) when (ex is not OperationCanceledException)
         {
             (logger ?? NullLogger.Instance).LogWarning(ex, "Failed to apply Mark-of-the-Web (Zone.Identifier) to {FilePath}. Filesystem may not support Alternate Data Streams.", filePath);
             return false;

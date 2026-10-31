@@ -5,6 +5,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
+using SwiftGet.Core.IO;
 using SwiftGet.Core.Models;
 using SwiftGet.Core.Storage;
 using SwiftGet.Engine.Batch;
@@ -16,6 +17,7 @@ public sealed partial class BatchDownloadViewModel : ObservableObject
 {
     private readonly ISwiftGetDatabase _db;
     private readonly ICategoryManager _categoryManager;
+    private readonly IFileNameResolver _fileNameResolver;
 
     [ObservableProperty]
     private string _addressPattern = "https://example.com/files/img_[001-010].jpg";
@@ -38,10 +40,11 @@ public sealed partial class BatchDownloadViewModel : ObservableObject
     [ObservableProperty]
     private string _generatedCountSummary = "Generated URLs (0):";
 
-    public BatchDownloadViewModel(ISwiftGetDatabase db, ICategoryManager categoryManager)
+    public BatchDownloadViewModel(ISwiftGetDatabase db, ICategoryManager categoryManager, IFileNameResolver? fileNameResolver = null)
     {
         _db = db ?? throw new ArgumentNullException(nameof(db));
         _categoryManager = categoryManager ?? throw new ArgumentNullException(nameof(categoryManager));
+        _fileNameResolver = fileNameResolver ?? new SwiftGet.Core.IO.FileNameResolver();
         _saveDirectory = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "Downloads");
         UpdatePreview();
     }
@@ -86,12 +89,8 @@ public sealed partial class BatchDownloadViewModel : ObservableObject
         foreach (var url in GeneratedUrls)
         {
             ct.ThrowIfCancellationRequested();
-            var fileName = "download.bin";
-            if (Uri.TryCreate(url, UriKind.Absolute, out var uri))
-            {
-                var candidate = Path.GetFileName(uri.LocalPath);
-                if (!string.IsNullOrWhiteSpace(candidate)) fileName = candidate;
-            }
+            var fileName = _fileNameResolver.ResolveInitialCandidate(url);
+            if (string.IsNullOrWhiteSpace(fileName)) fileName = "download.bin";
 
             var category = _categoryManager.ResolveCategory(fileName);
             var targetDir = string.IsNullOrWhiteSpace(SaveDirectory) ? category.TargetDirectory : SaveDirectory;

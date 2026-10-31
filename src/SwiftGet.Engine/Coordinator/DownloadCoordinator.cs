@@ -1,6 +1,7 @@
 using System.Security.Cryptography;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
+using SwiftGet.Core.IO;
 using SwiftGet.Core.Models;
 using SwiftGet.Core.Storage;
 using SwiftGet.Engine.IO;
@@ -16,20 +17,25 @@ public class DownloadCoordinator
     private readonly HttpClient _httpClient;
     private readonly ISwiftGetDatabase _db;
     private readonly HttpProbeService _probeService;
+    private readonly IFileNameResolver _fileNameResolver;
     private readonly ILogger<DownloadCoordinator> _logger;
 
     public bool ApplyMarkOfTheWeb { get; set; } = true;
     public SwiftGet.Engine.Security.IAntivirusScanner? AntivirusScanner { get; set; }
 
+    public event EventHandler<(string DownloadId, string NewFileName, string NewDestinationPath)>? FileNameUpdated;
+
     public DownloadCoordinator(
         HttpClient httpClient,
         ISwiftGetDatabase db,
         HttpProbeService? probeService = null,
+        IFileNameResolver? fileNameResolver = null,
         ILogger<DownloadCoordinator>? logger = null)
     {
         _httpClient = httpClient;
         _db = db;
-        _probeService = probeService ?? new HttpProbeService(httpClient);
+        _fileNameResolver = fileNameResolver ?? new FileNameResolver();
+        _probeService = probeService ?? new HttpProbeService(httpClient, _fileNameResolver);
         _logger = logger ?? NullLogger<DownloadCoordinator>.Instance;
     }
 
@@ -117,6 +123,26 @@ public class DownloadCoordinator
             {
                 item.FileName = probeResult.SuggestedFileName ?? "download.bin";
             }
+            else if (!isResuming && !string.IsNullOrWhiteSpace(probeResult.SuggestedFileName))
+            {
+                var currentExt = _fileNameResolver.GetCompoundExtension(item.FileName);
+                var isPlaceholder = item.FileName.StartsWith("download_", StringComparison.OrdinalIgnoreCase) && item.FileName.EndsWith(".bin", StringComparison.OrdinalIgnoreCase);
+                var isExtensionlessOrGeneric = string.IsNullOrEmpty(currentExt) || _fileNameResolver.IsGenericOrScriptExtension(currentExt);
+
+                var suggestedExt = _fileNameResolver.GetCompoundExtension(probeResult.SuggestedFileName);
+                var suggestedHasRealExt = !string.IsNullOrEmpty(suggestedExt) && !_fileNameResolver.IsGenericOrScriptExtension(suggestedExt);
+
+                if (!item.IsFileNameUserLocked && (isPlaceholder || (isExtensionlessOrGeneric && suggestedHasRealExt) || !string.IsNullOrWhiteSpace(probeResult.ContentDisposition)))
+                {
+                    item.FileName = probeResult.SuggestedFileName;
+                    if (!string.IsNullOrWhiteSpace(item.DestinationPath))
+                    {
+                        var dir = Path.GetDirectoryName(item.DestinationPath) ?? Environment.CurrentDirectory;
+                        item.DestinationPath = Path.Combine(dir, item.FileName);
+                    }
+                    FileNameUpdated?.Invoke(this, (item.Id, item.FileName, item.DestinationPath));
+                }
+            }
 
             if (string.IsNullOrWhiteSpace(item.DestinationPath))
             {
@@ -142,6 +168,8 @@ public class DownloadCoordinator
             await _db.UpdateDownloadStatusAsync(item.Id, DownloadStatus.Downloading, null, ct).ConfigureAwait(false);
             item.Status = DownloadStatus.Downloading;
 
+            string? liveGetResolvedName = null;
+
             using var scheduler = new SegmentScheduler(
                 _httpClient,
                 item,
@@ -150,7 +178,49 @@ public class DownloadCoordinator
                 maxConnections: item.SupportsRanges ? maxConnections : 1,
                 minSplitSize: minSplitSize,
                 limiter: effectiveLimiter,
-                logger: _logger);
+                logger: _logger)
+            {
+                OnFirstChunkRead = (resp, sample) =>
+                {
+                    try
+                    {
+                        string? rawCd = null;
+                        if (resp.Content.Headers.TryGetValues("Content-Disposition", out var cdVals))
+                        {
+                            rawCd = string.Join("; ", cdVals);
+                        }
+                        else if (resp.Headers.TryGetValues("Content-Disposition", out var hcdVals))
+                        {
+                            rawCd = string.Join("; ", hcdVals);
+                        }
+
+                        var contentType = resp.Content.Headers.ContentType?.MediaType;
+                        var finalUrl = resp.RequestMessage?.RequestUri?.ToString() ?? item.FinalUrl;
+
+                        var resolved = _fileNameResolver.Resolve(new FileNameResolutionContext
+                        {
+                            OriginalUrl = item.Url,
+                            FinalUrl = finalUrl,
+                            ContentDisposition = rawCd,
+                            ContentType = contentType,
+                            InitialBytes = sample.Length > 0 ? new ReadOnlyMemory<byte>(sample) : null
+                        });
+
+                        var currentExt = _fileNameResolver.GetCompoundExtension(item.FileName);
+                        var isCurrentGeneric = string.IsNullOrEmpty(currentExt) || _fileNameResolver.IsGenericOrScriptExtension(currentExt);
+                        var isNewReal = !string.IsNullOrEmpty(resolved.Extension) && !_fileNameResolver.IsGenericOrScriptExtension(resolved.Extension);
+
+                        if (!string.IsNullOrWhiteSpace(rawCd) || (isCurrentGeneric && isNewReal))
+                        {
+                            liveGetResolvedName = resolved.FileName;
+                        }
+                    }
+                    catch
+                    {
+                        // Non-fatal inspection
+                    }
+                }
+            };
 
             using (var progressCts = CancellationTokenSource.CreateLinkedTokenSource(ct))
             {
@@ -194,6 +264,81 @@ public class DownloadCoordinator
 
             await writer.CloseAsync().ConfigureAwait(false);
 
+            // Extension recovery & Atomic rename on completion
+            try
+            {
+                if (File.Exists(item.DestinationPath))
+                {
+                    var currentExt = _fileNameResolver.GetCompoundExtension(item.FileName);
+                    var isCurrentGeneric = string.IsNullOrEmpty(currentExt) || _fileNameResolver.IsGenericOrScriptExtension(currentExt);
+
+                    string targetFileName = item.FileName;
+
+                    if (!item.IsFileNameUserLocked && !string.IsNullOrWhiteSpace(liveGetResolvedName) && !liveGetResolvedName.Equals(item.FileName, StringComparison.OrdinalIgnoreCase))
+                    {
+                        targetFileName = liveGetResolvedName;
+                    }
+                    else if (isCurrentGeneric)
+                    {
+                        byte[] sample = new byte[8192];
+                        int readBytes = 0;
+                        try
+                        {
+                            using var fs = new FileStream(item.DestinationPath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
+                            readBytes = fs.Read(sample, 0, sample.Length);
+                        }
+                        catch { }
+
+                        var recoveredExt = _fileNameResolver.RecoverExtension(item.FileName, item.ContentType, sample.AsSpan(0, readBytes));
+                        if (!string.IsNullOrEmpty(recoveredExt) && !recoveredExt.Equals(currentExt, StringComparison.OrdinalIgnoreCase))
+                        {
+                            var basePart = string.IsNullOrEmpty(currentExt) ? item.FileName : item.FileName[..^currentExt.Length];
+                            targetFileName = basePart + recoveredExt;
+                        }
+                    }
+
+                    if (!targetFileName.Equals(item.FileName, StringComparison.OrdinalIgnoreCase))
+                    {
+                        var dir = Path.GetDirectoryName(item.DestinationPath) ?? Environment.CurrentDirectory;
+                        var uniqueDest = _fileNameResolver.ResolveUniquePath(dir, targetFileName, overwrite: false);
+                        var finalName = Path.GetFileName(uniqueDest);
+
+                        if (!uniqueDest.Equals(item.DestinationPath, StringComparison.OrdinalIgnoreCase))
+                        {
+                            File.Move(item.DestinationPath, uniqueDest, overwrite: false);
+                            item.FileName = finalName;
+                            item.DestinationPath = uniqueDest;
+                            await _db.SaveDownloadAsync(item, CancellationToken.None).ConfigureAwait(false);
+                            FileNameUpdated?.Invoke(this, (item.Id, item.FileName, item.DestinationPath));
+                        }
+                    }
+                }
+            }
+            catch (Exception renameEx)
+            {
+                _logger.LogWarning(renameEx, "Atomic filename extension rename skipped for download {Id}", item.Id);
+            }
+
+            if (item.TotalBytes <= 0)
+            {
+                var actualLen = item.DownloadedBytes > 0
+                    ? item.DownloadedBytes
+                    : (File.Exists(item.DestinationPath) ? new FileInfo(item.DestinationPath).Length : 0);
+                if (actualLen > 0)
+                {
+                    item.TotalBytes = actualLen;
+                    item.DownloadedBytes = actualLen;
+                }
+            }
+            else if (item.DownloadedBytes < item.TotalBytes && File.Exists(item.DestinationPath))
+            {
+                var diskLen = new FileInfo(item.DestinationPath).Length;
+                if (diskLen >= item.TotalBytes)
+                {
+                    item.DownloadedBytes = item.TotalBytes;
+                }
+            }
+
             // 5. Verifying & Completion
             await _db.UpdateDownloadStatusAsync(item.Id, DownloadStatus.Verifying, null, ct).ConfigureAwait(false);
             item.Status = DownloadStatus.Verifying;
@@ -230,6 +375,7 @@ public class DownloadCoordinator
             }
 
             item.Status = DownloadStatus.Completed;
+            item.ErrorMessage = null;
             item.CompletedAtUtc = DateTime.UtcNow;
             await _db.SaveDownloadAsync(item, CancellationToken.None).ConfigureAwait(false);
             await _db.UpdateDownloadStatusAsync(item.Id, DownloadStatus.Completed, null, CancellationToken.None).ConfigureAwait(false);

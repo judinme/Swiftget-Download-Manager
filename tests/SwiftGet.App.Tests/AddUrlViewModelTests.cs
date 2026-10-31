@@ -103,20 +103,51 @@ public class AddUrlViewModelTests
     }
 
     [Fact]
-    public async Task ProbeAsync_InvalidUrl_SetsErrorMessage()
+    public async Task ProbeAsync_WhenUserHasExplicitlyEditedFileName_PreservesUserFileName()
     {
-        // Arrange
-        using var client = new HttpClient();
+        // Arrange: Server responds with a suggested filename via Content-Disposition
+        var handler = new MockHttpMessageHandler(req =>
+        {
+            var res = new HttpResponseMessage(HttpStatusCode.OK);
+            res.Content.Headers.ContentLength = 104_857_600;
+            res.Content.Headers.TryAddWithoutValidation(
+                "Content-Disposition",
+                "attachment; filename=\"ServerSuggestedName.zip\"");
+            return res;
+        });
+
+        using var client = new HttpClient(handler);
         var probe = new HttpProbeService(client);
         var vm = new AddUrlViewModel(probe)
         {
-            Url = "not-a-valid-url"
+            Url = "https://example.com/download/file123"
         };
+
+        // User explicitly types an authoritative file name
+        vm.FileName = "UserTypedCustomName.zip";
 
         // Act
         await vm.ProbeAsync();
 
-        // Assert
-        vm.StatusMessage.Should().Contain("valid HTTP or HTTPS URL");
+        // Assert: User edited name must be preserved
+        vm.FileName.Should().Be("UserTypedCustomName.zip");
+        vm.SelectedCategory.Should().Be("Compressed");
+    }
+
+    [Theory]
+    [InlineData("archive.tar.gz", "Compressed")]
+    [InlineData("archive.tar.bz2", "Compressed")]
+    [InlineData("archive.tar.xz", "Compressed")]
+    [InlineData("installer.msix", "Programs")]
+    [InlineData("app.apk", "Programs")]
+    [InlineData("music.opus", "Music")]
+    public void AutoAssignCategory_CompoundAndModernExtensions_AssignsCorrectCategory(string fileName, string expectedCategory)
+    {
+        using var client = new HttpClient();
+        var probe = new HttpProbeService(client);
+        var vm = new AddUrlViewModel(probe);
+
+        vm.AutoAssignCategory(fileName);
+        vm.SelectedCategory.Should().Be(expectedCategory);
     }
 }

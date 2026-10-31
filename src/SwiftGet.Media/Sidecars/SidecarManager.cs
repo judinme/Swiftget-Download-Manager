@@ -5,6 +5,7 @@ using System.IO;
 using System.Linq;
 using System.Security.Cryptography;
 using System.Text;
+using System.Text.RegularExpressions;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
@@ -188,11 +189,82 @@ public sealed class SidecarManager
             rawError.Contains("untrusted mount point", StringComparison.OrdinalIgnoreCase) ||
             rawError.Contains("ERROR_UNTRUSTED_MOUNT_POINT", StringComparison.OrdinalIgnoreCase))
         {
-            var target = !string.IsNullOrWhiteSpace(pathContext) ? pathContext : "download or temporary folder";
+            var extractedMatch = Regex.Match(rawError, @"['""](?<path>[A-Za-z]:\\[^'""\r\n]+)['""]");
+            string? candidateContext = pathContext;
+            if (!string.IsNullOrWhiteSpace(candidateContext) &&
+                candidateContext.EndsWith(".exe", StringComparison.OrdinalIgnoreCase) &&
+                !PathResolver.ContainsReparsePoint(candidateContext))
+            {
+                candidateContext = null;
+            }
+
+            var target = extractedMatch.Success
+                ? extractedMatch.Groups["path"].Value
+                : (!string.IsNullOrWhiteSpace(candidateContext) ? candidateContext : "download or temporary folder");
             return $"The folder '{target}' is a redirected or junction folder (untrusted mount point). Choose another location or click 'Fix automatically' to resolve it to its physical path.";
         }
 
         return rawError;
+    }
+
+    public static string BuildSafePathEnvironment(string? primarySidecarDir = null)
+    {
+        var safeDirs = new List<string>();
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+        void TryAddSafeDir(string? rawDir)
+        {
+            if (string.IsNullOrWhiteSpace(rawDir))
+                return;
+
+            var cleaned = Path.TrimEndingDirectorySeparator(rawDir.Trim().Trim('"'));
+            if (string.IsNullOrWhiteSpace(cleaned))
+                return;
+
+            // Skip known per-user symlink / AppExecLink directories that trigger WinError 448 under RedirectionGuard
+            if (cleaned.Contains(@"\Microsoft\WindowsApps", StringComparison.OrdinalIgnoreCase) ||
+                cleaned.Contains(@"\Microsoft\WinGet\Links", StringComparison.OrdinalIgnoreCase))
+            {
+                return;
+            }
+
+            // Skip any directory that is or has an ancestor reparse point (junction/symlink/mount point)
+            if (PathResolver.ContainsReparsePoint(cleaned))
+            {
+                return;
+            }
+
+            if (!Directory.Exists(cleaned))
+                return;
+
+            var physical = Path.TrimEndingDirectorySeparator(PathResolver.GetPhysicalPath(cleaned));
+            if (PathResolver.ContainsReparsePoint(physical))
+                return;
+
+            if (seen.Add(physical))
+            {
+                safeDirs.Add(physical);
+            }
+        }
+
+        TryAddSafeDir(primarySidecarDir);
+
+        var sysDir = Environment.SystemDirectory;
+        var winDir = Environment.GetFolderPath(Environment.SpecialFolder.Windows);
+        TryAddSafeDir(sysDir);
+        TryAddSafeDir(winDir);
+        if (!string.IsNullOrWhiteSpace(sysDir))
+        {
+            TryAddSafeDir(Path.Combine(sysDir, "Wbem"));
+        }
+
+        var currentPath = Environment.GetEnvironmentVariable("PATH") ?? string.Empty;
+        foreach (var entry in currentPath.Split(Path.PathSeparator, StringSplitOptions.RemoveEmptyEntries))
+        {
+            TryAddSafeDir(entry);
+        }
+
+        return string.Join(Path.PathSeparator, safeDirs);
     }
 
     public static async Task<SidecarProcessResult> ExecuteSidecarAsync(
@@ -228,23 +300,68 @@ public sealed class SidecarManager
             StandardErrorEncoding = Encoding.UTF8
         };
 
+        startInfo.Environment["PATH"] = BuildSafePathEnvironment(safeWorkingDir);
         startInfo.Environment["TEMP"] = safeTemp;
         startInfo.Environment["TMP"] = safeTemp;
+        startInfo.Environment["HOME"] = safeTemp;
+        startInfo.Environment["USERPROFILE"] = safeTemp;
+        startInfo.Environment["APPDATA"] = safeTemp;
+        startInfo.Environment["LOCALAPPDATA"] = safeTemp;
+        startInfo.Environment["XDG_CONFIG_HOME"] = safeTemp;
+        startInfo.Environment["XDG_CACHE_HOME"] = safeCache;
+        startInfo.Environment["PYTHONUTF8"] = "1";
+        startInfo.Environment["PYTHONIOENCODING"] = "utf-8";
 
         var isYtDlp = Path.GetFileNameWithoutExtension(resolvedBinary).Equals("yt-dlp", StringComparison.OrdinalIgnoreCase);
         var argsList = arguments.ToList();
 
-        // If yt-dlp, isolate cache-dir and disable external config locations to prevent touching user-profile junctions / cloud folders
+        // If yt-dlp, isolate cache-dir, config, plugins, ffmpeg-location, and JS runtimes to prevent touching user-profile junctions
         if (isYtDlp)
         {
-            if (!argsList.Any(a => a.Equals("--cache-dir", StringComparison.OrdinalIgnoreCase)))
+            var isVersionQuery = argsList.Count == 1 && argsList[0].Equals("--version", StringComparison.OrdinalIgnoreCase);
+            if (!isVersionQuery)
+            {
+                if (!argsList.Any(a => a.Equals("-- ffmpeg-location", StringComparison.OrdinalIgnoreCase) || a.Equals("--ffmpeg-location", StringComparison.OrdinalIgnoreCase)))
+                {
+                    var bundledFfmpeg = Path.Combine(safeWorkingDir, "ffmpeg.exe");
+                    if (File.Exists(bundledFfmpeg))
+                    {
+                        argsList.Insert(0, safeWorkingDir);
+                        argsList.Insert(0, "--ffmpeg-location");
+                    }
+                }
+
+                if (!argsList.Any(a => a.Equals("--js-runtimes", StringComparison.OrdinalIgnoreCase) || a.Equals("--no-js-runtimes", StringComparison.OrdinalIgnoreCase)))
+                {
+                    var programFilesNode = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles), "nodejs", "node.exe");
+                    if (File.Exists(programFilesNode) && !PathResolver.ContainsReparsePoint(programFilesNode))
+                    {
+                        argsList.Insert(0, "node");
+                        argsList.Insert(0, "--js-runtimes");
+                    }
+                    else
+                    {
+                        argsList.Insert(0, "--no-js-runtimes");
+                    }
+                }
+            }
+
+            if (!argsList.Any(a => a.Equals("--cache-dir", StringComparison.OrdinalIgnoreCase) || a.Equals("--no-cache-dir", StringComparison.OrdinalIgnoreCase)))
             {
                 argsList.Insert(0, safeCache);
                 argsList.Insert(0, "--cache-dir");
             }
+            if (!argsList.Any(a => a.Equals("--no-plugin-dirs", StringComparison.OrdinalIgnoreCase)))
+            {
+                argsList.Insert(0, "--no-plugin-dirs");
+            }
             if (!argsList.Any(a => a.Equals("--no-config-locations", StringComparison.OrdinalIgnoreCase)))
             {
                 argsList.Insert(0, "--no-config-locations");
+            }
+            if (!argsList.Any(a => a.Equals("--ignore-config", StringComparison.OrdinalIgnoreCase) || a.Equals("--no-config", StringComparison.OrdinalIgnoreCase)))
+            {
+                argsList.Insert(0, "--ignore-config");
             }
         }
 

@@ -34,6 +34,7 @@ public sealed partial class SiteGrabberEngine : IWebCrawler
 {
     public const int MaxPagesLimit = 500;
     private readonly HttpClient _httpClient;
+    private readonly SwiftGet.Core.IO.IFileNameResolver _fileNameResolver;
 
     [GeneratedRegex(@"(?:href|src)\s*=\s*[""']([^""'#\s]+)[""']", RegexOptions.IgnoreCase)]
     private static partial Regex LinkRegex();
@@ -66,9 +67,10 @@ public sealed partial class SiteGrabberEngine : IWebCrawler
     public event EventHandler<GrabberProgressEventArgs>? ProgressUpdated;
     public event EventHandler<GrabberFileItem>? FileDiscovered;
 
-    public SiteGrabberEngine(HttpClient httpClient)
+    public SiteGrabberEngine(HttpClient httpClient, SwiftGet.Core.IO.IFileNameResolver? fileNameResolver = null)
     {
         _httpClient = httpClient ?? throw new ArgumentNullException(nameof(httpClient));
+        _fileNameResolver = fileNameResolver ?? new SwiftGet.Core.IO.FileNameResolver();
     }
 
     public async Task<IReadOnlyList<GrabberFileItem>> CrawlAsync(GrabberProject project, CancellationToken ct = default)
@@ -199,7 +201,7 @@ public sealed partial class SiteGrabberEngine : IWebCrawler
         }
 
         discoveredFileUrls.Add(normalized);
-        var fileName = Path.GetFileName(uri.LocalPath);
+        var fileName = _fileNameResolver.ResolveInitialCandidate(uri.AbsoluteUri);
         if (string.IsNullOrWhiteSpace(fileName))
         {
             fileName = "file" + ext;

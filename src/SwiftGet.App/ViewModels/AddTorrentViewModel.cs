@@ -26,6 +26,13 @@ public sealed partial class AddTorrentFileEntryViewModel : ObservableObject
     [ObservableProperty]
     private bool _isSelected = true;
 
+    public Action? SelectionChangedCallback { get; set; }
+
+    partial void OnIsSelectedChanged(bool value)
+    {
+        SelectionChangedCallback?.Invoke();
+    }
+
     [ObservableProperty]
     private TorrentFilePriority _priority = TorrentFilePriority.Normal;
 
@@ -39,7 +46,7 @@ public sealed partial class AddTorrentFileEntryViewModel : ObservableObject
     };
 }
 
-public sealed partial class AddTorrentViewModel : ObservableObject
+public sealed partial class AddTorrentViewModel : ObservableObject, IDisposable
 {
     private readonly ITorrentEngine? _torrentEngine;
 
@@ -77,6 +84,9 @@ public sealed partial class AddTorrentViewModel : ObservableObject
     private long _totalBytes;
 
     [ObservableProperty]
+    private long _selectedBytes;
+
+    [ObservableProperty]
     private int _pieceCount;
 
     [ObservableProperty]
@@ -87,6 +97,15 @@ public sealed partial class AddTorrentViewModel : ObservableObject
 
     [ObservableProperty]
     private bool _hasDiskSpaceWarning;
+
+    [ObservableProperty]
+    private string _seedsText = "—";
+
+    [ObservableProperty]
+    private string _peersText = "—";
+
+    private CancellationTokenSource? _probingCts;
+    private string? _activeProbingJobId;
 
     public ObservableCollection<AddTorrentFileEntryViewModel> Files { get; } = [];
 
@@ -117,6 +136,27 @@ public sealed partial class AddTorrentViewModel : ObservableObject
         _ => string.Format(CultureInfo.InvariantCulture, "{0:0.##} GB", TotalBytes / (1024.0 * 1024.0 * 1024.0))
     };
 
+    public string FormattedSelectedSize => SelectedBytes switch
+    {
+        <= 0 => "0 B",
+        < 1024 => $"{SelectedBytes} B",
+        < 1024 * 1024 => string.Format(CultureInfo.InvariantCulture, "{0:0.#} KB", SelectedBytes / 1024.0),
+        < 1024 * 1024 * 1024 => string.Format(CultureInfo.InvariantCulture, "{0:0.##} MB", SelectedBytes / (1024.0 * 1024.0)),
+        _ => string.Format(CultureInfo.InvariantCulture, "{0:0.##} GB", SelectedBytes / (1024.0 * 1024.0 * 1024.0))
+    };
+
+    public string SizeSummaryText => TotalBytes > 0
+        ? (SelectedBytes == TotalBytes ? FormattedTotalSize : $"{FormattedSelectedSize} / {FormattedTotalSize}")
+        : "Unknown";
+
+    public void RecalculateSelectedSize()
+    {
+        SelectedBytes = Files.Where(f => f.IsSelected).Sum(f => f.FileSizeBytes);
+        OnPropertyChanged(nameof(FormattedSelectedSize));
+        OnPropertyChanged(nameof(SizeSummaryText));
+        UpdateFreeSpace();
+    }
+
     public AddTorrentViewModel(ITorrentEngine? torrentEngine = null)
     {
         _torrentEngine = torrentEngine;
@@ -124,18 +164,40 @@ public sealed partial class AddTorrentViewModel : ObservableObject
         UpdateFreeSpace();
     }
 
+    partial void OnSourceChanged(string value)
+    {
+        if (string.IsNullOrWhiteSpace(value)) return;
+        var trimmed = value.Trim().Trim('"');
+        if (trimmed.StartsWith("magnet:?", StringComparison.OrdinalIgnoreCase) ||
+            (trimmed.EndsWith(".torrent", StringComparison.OrdinalIgnoreCase) && File.Exists(trimmed)))
+        {
+            if (!string.Equals(trimmed, _activeSourceLoaded, StringComparison.OrdinalIgnoreCase))
+            {
+                _ = InitializeFromSourceAsync(trimmed);
+            }
+        }
+    }
+
+    private string _activeSourceLoaded = string.Empty;
+
     public async Task InitializeFromSourceAsync(string source, CancellationToken ct = default)
     {
-        Source = source.Trim().Trim('"');
+        var cleaned = source.Trim().Trim('"');
+        if (string.IsNullOrWhiteSpace(cleaned)) return;
+        _activeSourceLoaded = cleaned;
+        if (Source != cleaned)
+        {
+            Source = cleaned;
+        }
         Files.Clear();
 
-        if (Source.EndsWith(".torrent", StringComparison.OrdinalIgnoreCase) && File.Exists(Source))
+        if (cleaned.EndsWith(".torrent", StringComparison.OrdinalIgnoreCase) && File.Exists(cleaned))
         {
-            await LoadTorrentFileAsync(Source, ct).ConfigureAwait(false);
+            await LoadTorrentFileAsync(cleaned, ct).ConfigureAwait(false);
         }
-        else if (Source.StartsWith("magnet:?", StringComparison.OrdinalIgnoreCase))
+        else if (cleaned.StartsWith("magnet:?", StringComparison.OrdinalIgnoreCase))
         {
-            await LoadMagnetUriAsync(Source, ct).ConfigureAwait(false);
+            await LoadMagnetUriAsync(cleaned, ct).ConfigureAwait(false);
         }
         else
         {
@@ -147,8 +209,11 @@ public sealed partial class AddTorrentViewModel : ObservableObject
 
     private async Task LoadTorrentFileAsync(string filePath, CancellationToken ct)
     {
+        CancelProbing();
         IsFetchingMetadata = true;
         StatusMessage = "Reading .torrent metadata...";
+        SeedsText = "N/A (.torrent file)";
+        PeersText = "N/A (.torrent file)";
 
         try
         {
@@ -160,6 +225,7 @@ public sealed partial class AddTorrentViewModel : ObservableObject
             TotalBytes = torrent.Size;
             PieceCount = torrent.PieceCount;
             PieceLength = torrent.PieceLength;
+            OnPropertyChanged(nameof(FormattedTotalSize));
 
             for (int i = 0; i < torrent.Files.Count; i++)
             {
@@ -170,10 +236,12 @@ public sealed partial class AddTorrentViewModel : ObservableObject
                     RelativePath = tf.Path,
                     FileSizeBytes = tf.Length,
                     IsSelected = true,
+                    SelectionChangedCallback = RecalculateSelectedSize,
                     Priority = TorrentFilePriority.Normal
                 });
             }
 
+            RecalculateSelectedSize();
             IsFetchingMetadata = false;
             StatusMessage = $"{Files.Count} files ready ({FormattedTotalSize})";
         }
@@ -192,22 +260,53 @@ public sealed partial class AddTorrentViewModel : ObservableObject
             return;
         }
 
+        CancelProbing();
+        _probingCts = new CancellationTokenSource();
+        var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(ct, _probingCts.Token);
+
         InfoHash = parsed!.InfoHash;
         TorrentName = parsed.DisplayName ?? $"Torrent_{parsed.InfoHash[..8]}";
+        SeedsText = "0 connected";
+        PeersText = "0 connected";
 
         if (_torrentEngine != null)
         {
             IsFetchingMetadata = true;
-            StatusMessage = "Connecting to swarm to retrieve metadata (BEP 9)...";
+            StatusMessage = "Connecting to swarm & searching for peers (DHT / Trackers)...";
 
-            var tcs = new TaskCompletionSource<TorrentMetadataReceivedEventArgs>();
             var tempJobId = Guid.NewGuid().ToString("N");
+            _activeProbingJobId = tempJobId;
 
             EventHandler<TorrentMetadataReceivedEventArgs> handler = (s, e) =>
             {
-                if (e.JobId == tempJobId)
+                if (e.JobId == tempJobId || string.Equals(e.InfoHash, InfoHash, StringComparison.OrdinalIgnoreCase))
                 {
-                    tcs.TrySetResult(e);
+                    _ = App.CurrentWindow?.DispatcherQueue?.TryEnqueue(() =>
+                    {
+                        if (!string.IsNullOrWhiteSpace(e.Name)) TorrentName = e.Name;
+                        if (e.TotalBytes > 0) TotalBytes = e.TotalBytes;
+                        OnPropertyChanged(nameof(FormattedTotalSize));
+
+                        Files.Clear();
+                        if (e.Files != null)
+                        {
+                            foreach (var mf in e.Files)
+                            {
+                                Files.Add(new AddTorrentFileEntryViewModel
+                                {
+                                    FileIndex = mf.FileIndex,
+                                    RelativePath = mf.RelativePath,
+                                    FileSizeBytes = mf.FileSizeBytes,
+                                    IsSelected = true,
+                                    SelectionChangedCallback = RecalculateSelectedSize,
+                                    Priority = TorrentFilePriority.Normal
+                                });
+                            }
+                            RecalculateSelectedSize();
+                        }
+                        IsFetchingMetadata = false;
+                        StatusMessage = $"Metadata resolved ({Files.Count} files, {FormattedTotalSize})";
+                    });
                 }
             };
 
@@ -220,43 +319,72 @@ public sealed partial class AddTorrentViewModel : ObservableObject
                     DownloadId = tempJobId,
                     SaveDirectory = SaveDirectory,
                     StartImmediately = true
-                }, ct).ConfigureAwait(false);
+                }, linkedCts.Token).ConfigureAwait(false);
 
-                var completedTask = await Task.WhenAny(tcs.Task, Task.Delay(TimeSpan.FromSeconds(8), ct)).ConfigureAwait(false);
-                if (completedTask == tcs.Task)
+                // Polling loop for seeds, peers, and metadata while dialog is open
+                _ = Task.Run(async () =>
                 {
-                    var meta = await tcs.Task.ConfigureAwait(false);
-                    TorrentName = meta.Name;
-                    TotalBytes = meta.TotalBytes;
-
-                    for (int i = 0; i < meta.Files.Count; i++)
+                    while (!linkedCts.Token.IsCancellationRequested && IsFetchingMetadata)
                     {
-                        var mf = meta.Files[i];
-                        Files.Add(new AddTorrentFileEntryViewModel
+                        try
                         {
-                            FileIndex = i,
-                            RelativePath = mf.RelativePath,
-                            FileSizeBytes = mf.FileSizeBytes,
-                            IsSelected = true,
-                            Priority = TorrentFilePriority.Normal
-                        });
-                    }
-                    StatusMessage = $"Metadata resolved ({Files.Count} files, {FormattedTotalSize})";
-                }
-                else
-                {
-                    StatusMessage = "Metadata fetch in background. Download will start immediately upon confirmation.";
-                }
+                            var stats = _torrentEngine.GetJobStats(tempJobId) ?? _torrentEngine.GetJobStats(InfoHash);
+                            if (stats != null)
+                            {
+                                _ = App.CurrentWindow?.DispatcherQueue?.TryEnqueue(() =>
+                                {
+                                    SeedsText = $"{stats.ConnectedSeeds} connected ({stats.TotalSeeds} total)";
+                                    PeersText = $"{stats.ConnectedPeers} connected ({stats.TotalPeers} total)";
+                                    if (IsFetchingMetadata && !stats.HasMetadata)
+                                    {
+                                        StatusMessage = stats.ConnectedPeers > 0 || stats.ConnectedSeeds > 0
+                                            ? $"Retrieving metadata from {stats.ConnectedPeers} peers ({stats.ConnectedSeeds} seeds)..."
+                                            : "Searching DHT & trackers for peers...";
+                                    }
+                                });
 
-                await _torrentEngine.RemoveAsync(tempJobId, deleteFiles: false, ct).ConfigureAwait(false);
+                                if (stats.HasMetadata && (Files.Count == 0 || TotalBytes <= 0))
+                                {
+                                    var files = _torrentEngine.GetFiles(tempJobId);
+                                    if (files.Count > 0)
+                                    {
+                                        _ = App.CurrentWindow?.DispatcherQueue?.TryEnqueue(() =>
+                                        {
+                                            if (!string.IsNullOrWhiteSpace(stats.Name)) TorrentName = stats.Name;
+                                            TotalBytes = stats.TotalBytes;
+                                            OnPropertyChanged(nameof(FormattedTotalSize));
+
+                                            Files.Clear();
+                                            foreach (var f in files)
+                                            {
+                                                Files.Add(new AddTorrentFileEntryViewModel
+                                                {
+                                                    FileIndex = f.FileIndex,
+                                                    RelativePath = f.RelativePath,
+                                                    FileSizeBytes = f.FileSizeBytes,
+                                                    IsSelected = f.IsSelected,
+                                                    SelectionChangedCallback = RecalculateSelectedSize,
+                                                    Priority = f.Priority
+                                                });
+                                            }
+                                            RecalculateSelectedSize();
+                                            IsFetchingMetadata = false;
+                                            StatusMessage = $"Metadata resolved ({Files.Count} files, {FormattedTotalSize})";
+                                        });
+                                        break;
+                                    }
+                                }
+                            }
+                            await Task.Delay(500, linkedCts.Token).ConfigureAwait(false);
+                        }
+                        catch (OperationCanceledException) { break; }
+                        catch { }
+                    }
+                }, linkedCts.Token);
             }
             catch (Exception ex)
             {
                 StatusMessage = $"Note: Swarm metadata probe encountered: {ex.Message}";
-            }
-            finally
-            {
-                _torrentEngine.MetadataReceived -= handler;
                 IsFetchingMetadata = false;
             }
         }
@@ -266,6 +394,33 @@ public sealed partial class AddTorrentViewModel : ObservableObject
         }
     }
 
+    public void CancelProbing(bool isConfirmed = false)
+    {
+        try
+        {
+            _probingCts?.Cancel();
+            _probingCts?.Dispose();
+            _probingCts = null;
+        }
+        catch { }
+
+        if (!isConfirmed && !string.IsNullOrWhiteSpace(_activeProbingJobId) && _torrentEngine != null)
+        {
+            var jobId = _activeProbingJobId;
+            _activeProbingJobId = null;
+            _ = _torrentEngine.RemoveAsync(jobId, deleteFiles: false);
+        }
+        else
+        {
+            _activeProbingJobId = null;
+        }
+    }
+
+    public void Dispose()
+    {
+        CancelProbing();
+    }
+
     [RelayCommand]
     private void SelectAllFiles()
     {
@@ -273,6 +428,7 @@ public sealed partial class AddTorrentViewModel : ObservableObject
         {
             file.IsSelected = true;
         }
+        RecalculateSelectedSize();
     }
 
     [RelayCommand]
@@ -282,6 +438,7 @@ public sealed partial class AddTorrentViewModel : ObservableObject
         {
             file.IsSelected = false;
         }
+        RecalculateSelectedSize();
     }
 
     public void UpdateFreeSpace()
@@ -293,7 +450,8 @@ public sealed partial class AddTorrentViewModel : ObservableObject
             if (drive.IsReady)
             {
                 FreeDiskSpace = string.Format(CultureInfo.InvariantCulture, "{0:0.##} GB free", drive.AvailableFreeSpace / (1024.0 * 1024.0 * 1024.0));
-                HasDiskSpaceWarning = TotalBytes > 0 && TotalBytes > drive.AvailableFreeSpace;
+                long bytesToCheck = SelectedBytes > 0 ? SelectedBytes : TotalBytes;
+                HasDiskSpaceWarning = bytesToCheck > 0 && bytesToCheck > drive.AvailableFreeSpace;
             }
         }
         catch

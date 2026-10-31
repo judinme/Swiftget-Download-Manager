@@ -7,19 +7,52 @@ namespace SwiftGet.Engine.Torrent;
 
 public sealed class TorrentEngineOptions
 {
-    public int ListenPort { get; set; }
-    public bool EnableUpnp { get; set; }
+    public int ListenPort { get; set; } = 52138;
+    public bool RandomizePortOnStartup { get; set; }
+    public bool EnableUpnp { get; set; } = true;
     public bool EnableDht { get; set; } = true;
     public bool EnablePex { get; set; } = true;
     public bool EnableLocalPeerDiscovery { get; set; } = true;
-    public bool PreferEncryption { get; set; } = true;
+    public TorrentEncryptionMode EncryptionMode { get; set; } = TorrentEncryptionMode.PreferEncryption;
+
+    [System.Text.Json.Serialization.JsonIgnore]
+    public bool PreferEncryption
+    {
+        get => EncryptionMode != TorrentEncryptionMode.AllowPlaintext;
+        set
+        {
+            if (value && EncryptionMode == TorrentEncryptionMode.AllowPlaintext)
+            {
+                EncryptionMode = TorrentEncryptionMode.PreferEncryption;
+            }
+            else if (!value)
+            {
+                EncryptionMode = TorrentEncryptionMode.AllowPlaintext;
+            }
+        }
+    }
     public IPAddress? BoundInterfaceAddress { get; set; }
-    public int MaxConnections { get; set; } = 150;
+    public int MaxConnections { get; set; } = 500;
+    public int MaxConnectionsPerTorrent { get; set; } = 200;
     public long GlobalMaxDownloadRateBytesPerSec { get; set; }
     public long GlobalMaxUploadRateBytesPerSec { get; set; }
+    public bool EnableRateLimitSchedule { get; set; }
+    public int ScheduleStartHour { get; set; } = 8;
+    public int ScheduleEndHour { get; set; } = 20;
+    public long ScheduledDownloadRateBytesPerSec { get; set; } = 512 * 1024;
+    public long ScheduledUploadRateBytesPerSec { get; set; } = 128 * 1024;
+    public long AltDownloadRateBytesPerSec { get; set; } = 512 * 1024;
+    public long AltUploadRateBytesPerSec { get; set; } = 128 * 1024;
     public bool AllowLocalTrackers { get; set; }
     public string SaveDirectory { get; set; } = string.Empty;
     public string CacheDirectory { get; set; } = string.Empty;
+    public bool UsePartialFiles { get; set; } = true;
+    public double DefaultSeedRatio { get; set; } = 1.0;
+    public int DefaultSeedTimeMins { get; set; }
+    public bool StopSeedingWhenLimitReached { get; set; } = true;
+    public string DefaultTrackersText { get; set; } = string.Empty;
+    public bool EnableIpFilter { get; set; }
+    public string IpFilterPath { get; set; } = string.Empty;
 }
 
 public sealed class TorrentAddOptions
@@ -58,6 +91,8 @@ public sealed class TorrentJobStats
     public int PieceLength { get; set; }
     public int PieceCount { get; set; }
     public bool HasMetadata { get; set; }
+    public double Availability { get; set; }
+    public DateTime? LastSeenComplete { get; set; }
 }
 
 public sealed class TorrentFileInfo
@@ -83,6 +118,7 @@ public sealed class TorrentPeerInfo
     public string Flags { get; set; } = string.Empty;
     public bool IsEncrypted { get; set; }
     public bool IsUtp { get; set; }
+    public double ProgressPercentage { get; set; }
 }
 
 public sealed class TorrentTrackerInfo
@@ -93,6 +129,7 @@ public sealed class TorrentTrackerInfo
     public int Seeds { get; set; }
     public int Peers { get; set; }
     public DateTime? LastAnnounce { get; set; }
+    public DateTime? NextAnnounce { get; set; }
     public string? ErrorMessage { get; set; }
 }
 

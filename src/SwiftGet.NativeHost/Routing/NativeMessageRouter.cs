@@ -23,13 +23,20 @@ public sealed class NativeMessageRouter
     private readonly ICategoryManager? _categoryManager;
     private readonly LoopbackTokenManager _tokenManager;
     private readonly ISingleInstanceIpc? _ipc;
+    private readonly SwiftGet.Core.IO.IFileNameResolver _fileNameResolver;
 
-    public NativeMessageRouter(ISwiftGetDatabase? db = null, ICategoryManager? categoryManager = null, LoopbackTokenManager? tokenManager = null, ISingleInstanceIpc? ipc = null)
+    public NativeMessageRouter(
+        ISwiftGetDatabase? db = null,
+        ICategoryManager? categoryManager = null,
+        LoopbackTokenManager? tokenManager = null,
+        ISingleInstanceIpc? ipc = null,
+        SwiftGet.Core.IO.IFileNameResolver? fileNameResolver = null)
     {
         _db = db;
         _categoryManager = categoryManager;
         _tokenManager = tokenManager ?? new LoopbackTokenManager();
         _ipc = ipc;
+        _fileNameResolver = fileNameResolver ?? new SwiftGet.Core.IO.FileNameResolver();
     }
 
     public static bool ValidateOrigin(string? origin, string[]? allowedOrigins = null)
@@ -218,7 +225,7 @@ public sealed class NativeMessageRouter
                 CreatedAtUtc = DateTime.UtcNow
             };
             await _db.SaveTorrentAsync(torrent, ct).ConfigureAwait(false);
-            TryLaunchSwiftGetApp();
+            TryLaunchSwiftGetApp(uri);
         }
 
         return new
@@ -405,7 +412,7 @@ public sealed class NativeMessageRouter
                 CreatedAtUtc = DateTime.UtcNow
             };
             await _db.SaveTorrentAsync(torrent, ct).ConfigureAwait(false);
-            TryLaunchSwiftGetApp();
+            TryLaunchSwiftGetApp(forwardArgument);
         }
 
         return new
@@ -460,9 +467,9 @@ public sealed class NativeMessageRouter
         }
 
         var rawFileName = root.TryGetProperty("fileName", out var fnProp) ? fnProp.GetString() : null;
-        if (string.IsNullOrWhiteSpace(rawFileName) && Uri.TryCreate(url, UriKind.Absolute, out var uri))
+        if (string.IsNullOrWhiteSpace(rawFileName))
         {
-            rawFileName = Path.GetFileName(uri.LocalPath);
+            rawFileName = _fileNameResolver.ResolveInitialCandidate(url);
         }
 
         var downloadId = Guid.NewGuid().ToString("N");
@@ -472,13 +479,17 @@ public sealed class NativeMessageRouter
         }
 
         var fallbackFileName = "download_" + downloadId[..8] + ".bin";
-        var fileName = FileNameSanitizer.Sanitize(rawFileName ?? string.Empty, fallbackFileName);
+        var fileName = _fileNameResolver.SanitizeFileName(rawFileName ?? string.Empty, fallbackFileName);
 
         bool isTorrent = url.StartsWith("magnet:?", StringComparison.OrdinalIgnoreCase) ||
                          url.EndsWith(".torrent", StringComparison.OrdinalIgnoreCase) ||
                          fileName.EndsWith(".torrent", StringComparison.OrdinalIgnoreCase);
         bool isMedia = UrlMediaDetector.IsStreamingMediaPlatformUrl(url);
         JobKind jobKind = isTorrent ? JobKind.Torrent : (isMedia ? JobKind.Media : JobKind.Http);
+
+        var cookies = root.TryGetProperty("cookies", out var ckProp) ? ckProp.GetString() : null;
+        var referrer = root.TryGetProperty("referrer", out var refProp) ? refProp.GetString() : null;
+        var userAgent = root.TryGetProperty("userAgent", out var uaProp) ? uaProp.GetString() : null;
 
         string? destPath = null;
         if (_db != null && _categoryManager != null)
@@ -512,10 +523,10 @@ public sealed class NativeMessageRouter
             if (root.TryGetProperty("destinationPath", out var dpProp) && !string.IsNullOrWhiteSpace(dpProp.GetString()))
             {
                 var rawDestPath = dpProp.GetString()!;
-                var destFileName = Path.GetFileName(rawDestPath);
+                var destFileName = _fileNameResolver.SanitizeFileName(rawDestPath);
                 if (!string.IsNullOrWhiteSpace(destFileName))
                 {
-                    candidateName = FileNameSanitizer.Sanitize(destFileName, fileName);
+                    candidateName = _fileNameResolver.SanitizeFileName(destFileName, fileName);
                 }
             }
 
@@ -531,6 +542,9 @@ public sealed class NativeMessageRouter
                 DestinationPath = destPath,
                 CategoryId = categoryId,
                 QueueId = queueId,
+                CookiesJson = cookies,
+                Referrer = referrer,
+                UserAgent = userAgent,
                 Status = DownloadStatus.Queued,
                 CreatedAtUtc = DateTime.UtcNow
             };
@@ -551,7 +565,10 @@ public sealed class NativeMessageRouter
                 SaveDirectory = destPath,
                 StartImmediately = true,
                 CorrelationId = correlationId,
-                JobKind = jobKind.ToString()
+                JobKind = jobKind.ToString(),
+                Cookies = cookies,
+                Referrer = referrer,
+                UserAgent = userAgent
             }, timeoutMs: 1500, ct).ConfigureAwait(false);
         }
         else if (!IsTestEnvironment())
@@ -566,14 +583,17 @@ public sealed class NativeMessageRouter
                 SaveDirectory = destPath,
                 StartImmediately = true,
                 CorrelationId = correlationId,
-                JobKind = jobKind.ToString()
+                JobKind = jobKind.ToString(),
+                Cookies = cookies,
+                Referrer = referrer,
+                UserAgent = userAgent
             }, timeoutMs: 1500, ct).ConfigureAwait(false);
         }
 
         // 2. If app wasn't running, launch SwiftGet.App.exe
         if (!forwarded)
         {
-            TryLaunchSwiftGetApp();
+            TryLaunchSwiftGetApp(url);
         }
 
         return new
@@ -658,7 +678,7 @@ public sealed class NativeMessageRouter
                Environment.GetEnvironmentVariable("SWIFTGET_TEST_ENV") != null;
     }
 
-    private static void TryLaunchSwiftGetApp()
+    private static void TryLaunchSwiftGetApp(string? argument = null)
     {
         if (IsTestEnvironment())
         {
@@ -668,9 +688,13 @@ public sealed class NativeMessageRouter
         try
         {
             var localApp = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
+            var progFiles = Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles);
+            var progFilesX86 = Environment.GetFolderPath(Environment.SpecialFolder.ProgramFilesX86);
             var candidates = new[]
             {
                 Path.Combine(AppContext.BaseDirectory, "SwiftGet.App.exe"),
+                Path.Combine(progFiles, "SwiftGet", "SwiftGet.App.exe"),
+                Path.Combine(progFilesX86, "SwiftGet", "SwiftGet.App.exe"),
                 Path.Combine(localApp, "Programs", "SwiftGet", "SwiftGet.App.exe"),
                 Path.Combine(localApp, "SwiftGet", "SwiftGet.App.exe")
             };
@@ -679,11 +703,16 @@ public sealed class NativeMessageRouter
             {
                 if (File.Exists(candidate))
                 {
-                    System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
+                    var psi = new System.Diagnostics.ProcessStartInfo
                     {
                         FileName = candidate,
                         UseShellExecute = true
-                    });
+                    };
+                    if (!string.IsNullOrWhiteSpace(argument))
+                    {
+                        psi.Arguments = $"\"{argument}\"";
+                    }
+                    System.Diagnostics.Process.Start(psi);
                     break;
                 }
             }

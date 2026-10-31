@@ -21,6 +21,9 @@ public class SegmentWorker
     private readonly ITokenBucketLimiter? _limiter;
     private readonly ResiliencePipeline<HttpResponseMessage> _resiliencePipeline;
     private readonly ILogger _logger;
+    private bool _firstChunkReported;
+
+    public Action<HttpResponseMessage, byte[]>? OnFirstChunkRead { get; set; }
 
     public DownloadSegment Segment => _segment;
 
@@ -117,6 +120,22 @@ public class SegmentWorker
                 // EOF reached unexpectedly before EndOffset
                 ArrayPool<byte>.Shared.Return(buffer);
                 break;
+            }
+
+            if (_segment.StartOffset == 0 && !_firstChunkReported)
+            {
+                _firstChunkReported = true;
+                try
+                {
+                    var sampleLen = Math.Min(bytesRead, 1024);
+                    var sample = new byte[sampleLen];
+                    Array.Copy(buffer, sample, sampleLen);
+                    OnFirstChunkRead?.Invoke(response, sample);
+                }
+                catch
+                {
+                    // Non-fatal if header inspection callback fails
+                }
             }
 
             // Apply bandwidth limiter throttling if configured

@@ -52,121 +52,96 @@
         <RemoveFolder Id="CleanUpProgramMenu" Directory="ApplicationProgramsFolder" On="uninstall" />
       </Component>
 
-      <!-- Native Messaging Registry Keys -->
-      <Component Id="NativeHostComponent" Guid="A1B2C3D4-E5F6-4A5B-8C9D-0E1F2A3B4C5D">
-        <RegistryValue Root="HKCU" Key="Software\SwiftGet" Name="NativeHostRegistered" Type="integer" Value="1" KeyPath="yes" />
-        <!-- Chrome & Chromium Native Messaging Registry -->
-        <RegistryKey Root="HKCU" Key="Software\Google\Chrome\NativeMessagingHosts\com.swiftget.downloader">
+      <!-- Native Messaging Registry Keys (Machine Scope HKLM for Chrome, Edge, Brave, Opera, Firefox) -->
+      <Component Id="NativeHostMachineComponent" Guid="A1B2C3D4-E5F6-4A5B-8C9D-0E1F2A3B4C5D">
+        <RegistryValue Root="HKLM" Key="Software\SwiftGet" Name="NativeHostRegistered" Type="integer" Value="1" KeyPath="yes" />
+        <!-- Chrome Native Messaging Registry -->
+        <RegistryKey Root="HKLM" Key="Software\Google\Chrome\NativeMessagingHosts\com.swiftget.downloader">
           <RegistryValue Type="string" Value="[INSTALLFOLDER]com.swiftget.downloader.chrome.json" />
         </RegistryKey>
-        <RegistryKey Root="HKCU" Key="Software\Google\Chrome\NativeMessagingHosts\com.swiftget.native">
+        <RegistryKey Root="HKLM" Key="Software\Google\Chrome\NativeMessagingHosts\com.swiftget.native">
           <RegistryValue Type="string" Value="[INSTALLFOLDER]com.swiftget.native.json" />
         </RegistryKey>
 
         <!-- Microsoft Edge Native Messaging Registry -->
-        <RegistryKey Root="HKCU" Key="Software\Microsoft\Edge\NativeMessagingHosts\com.swiftget.downloader">
+        <RegistryKey Root="HKLM" Key="Software\Microsoft\Edge\NativeMessagingHosts\com.swiftget.downloader">
           <RegistryValue Type="string" Value="[INSTALLFOLDER]com.swiftget.downloader.chrome.json" />
         </RegistryKey>
-        <RegistryKey Root="HKCU" Key="Software\Microsoft\Edge\NativeMessagingHosts\com.swiftget.native">
+        <RegistryKey Root="HKLM" Key="Software\Microsoft\Edge\NativeMessagingHosts\com.swiftget.native">
           <RegistryValue Type="string" Value="[INSTALLFOLDER]com.swiftget.native.json" />
         </RegistryKey>
 
         <!-- Brave Browser Native Messaging Registry -->
-        <RegistryKey Root="HKCU" Key="Software\BraveSoftware\Brave-Browser\NativeMessagingHosts\com.swiftget.downloader">
+        <RegistryKey Root="HKLM" Key="Software\BraveSoftware\Brave-Browser\NativeMessagingHosts\com.swiftget.downloader">
           <RegistryValue Type="string" Value="[INSTALLFOLDER]com.swiftget.downloader.chrome.json" />
         </RegistryKey>
-        <RegistryKey Root="HKCU" Key="Software\BraveSoftware\Brave-Browser\NativeMessagingHosts\com.swiftget.native">
+        <RegistryKey Root="HKLM" Key="Software\BraveSoftware\Brave-Browser\NativeMessagingHosts\com.swiftget.native">
+          <RegistryValue Type="string" Value="[INSTALLFOLDER]com.swiftget.native.json" />
+        </RegistryKey>
+
+        <!-- Opera Stable Native Messaging Registry -->
+        <RegistryKey Root="HKLM" Key="Software\Opera Software\Opera Stable\NativeMessagingHosts\com.swiftget.downloader">
+          <RegistryValue Type="string" Value="[INSTALLFOLDER]com.swiftget.downloader.chrome.json" />
+        </RegistryKey>
+        <RegistryKey Root="HKLM" Key="Software\Opera Software\Opera Stable\NativeMessagingHosts\com.swiftget.native">
+          <RegistryValue Type="string" Value="[INSTALLFOLDER]com.swiftget.native.json" />
+        </RegistryKey>
+
+        <!-- Opera GX Native Messaging Registry -->
+        <RegistryKey Root="HKLM" Key="Software\Opera Software\Opera GX Stable\NativeMessagingHosts\com.swiftget.downloader">
+          <RegistryValue Type="string" Value="[INSTALLFOLDER]com.swiftget.downloader.chrome.json" />
+        </RegistryKey>
+        <RegistryKey Root="HKLM" Key="Software\Opera Software\Opera GX Stable\NativeMessagingHosts\com.swiftget.native">
           <RegistryValue Type="string" Value="[INSTALLFOLDER]com.swiftget.native.json" />
         </RegistryKey>
 
         <!-- Mozilla Firefox Native Messaging Registry -->
-        <RegistryKey Root="HKCU" Key="Software\Mozilla\NativeMessagingHosts\com.swiftget.downloader">
+        <RegistryKey Root="HKLM" Key="Software\Mozilla\NativeMessagingHosts\com.swiftget.downloader">
           <RegistryValue Type="string" Value="[INSTALLFOLDER]com.swiftget.downloader.firefox.json" />
         </RegistryKey>
-        <RegistryKey Root="HKCU" Key="Software\Mozilla\NativeMessagingHosts\com.swiftget.native">
+        <RegistryKey Root="HKLM" Key="Software\Mozilla\NativeMessagingHosts\com.swiftget.native">
           <RegistryValue Type="string" Value="[INSTALLFOLDER]com.swiftget.native.json" />
         </RegistryKey>
       </Component>
 
-      <!-- Browser Extension Auto-Installation (HKLM Machine Scope) -->
+      <!-- Native Messaging Registry Keys (User Scope HKCU Fallback) -->
+      <Component Id="NativeHostUserComponent" Guid="B2C3D4E5-F6A7-4B5C-9D0E-1F2A3B4C5D6E">
+        <RegistryValue Root="HKCU" Key="Software\SwiftGet" Name="NativeHostUserRegistered" Type="integer" Value="1" KeyPath="yes" />
+        <!-- Chrome & Chromium User Fallback -->
+        <RegistryKey Root="HKCU" Key="Software\Google\Chrome\NativeMessagingHosts\com.swiftget.downloader">
+          <RegistryValue Type="string" Value="[INSTALLFOLDER]com.swiftget.downloader.chrome.json" />
+        </RegistryKey>
+        <RegistryKey Root="HKCU" Key="Software\Microsoft\Edge\NativeMessagingHosts\com.swiftget.downloader">
+          <RegistryValue Type="string" Value="[INSTALLFOLDER]com.swiftget.downloader.chrome.json" />
+        </RegistryKey>
+        <RegistryKey Root="HKCU" Key="Software\BraveSoftware\Brave-Browser\NativeMessagingHosts\com.swiftget.downloader">
+          <RegistryValue Type="string" Value="[INSTALLFOLDER]com.swiftget.downloader.chrome.json" />
+        </RegistryKey>
+        <RegistryKey Root="HKCU" Key="Software\Opera Software\Opera Stable\NativeMessagingHosts\com.swiftget.downloader">
+          <RegistryValue Type="string" Value="[INSTALLFOLDER]com.swiftget.downloader.chrome.json" />
+        </RegistryKey>
+        <RegistryKey Root="HKCU" Key="Software\Mozilla\NativeMessagingHosts\com.swiftget.downloader">
+          <RegistryValue Type="string" Value="[INSTALLFOLDER]com.swiftget.downloader.firefox.json" />
+        </RegistryKey>
+      </Component>
+
+      <!-- Browser Store External Extension Registration (Machine Scope HKLM) -->
       <Component Id="BrowserExtensionMachineComponent" Guid="C3D4E5F6-A7B8-4C7D-8E1F-2A3B4C5D6E7F">
         <RegistryValue Root="HKLM" Key="Software\SwiftGet" Name="BrowserExtensionMachineRegistered" Type="integer" Value="1" KeyPath="yes" />
 
-        <!-- Chrome External Extension (Automatic Prompt to Enable on Launch) -->
+        <!-- Chrome External Extension (Offers enable prompt on launch once published in CWS) -->
         <RegistryKey Root="HKLM" Key="Software\Google\Chrome\Extensions\albogoggaijdbgdldghgfcjakpdbmmfm">
           <RegistryValue Type="string" Name="update_url" Value="https://clients2.google.com/service/update2/crx" />
         </RegistryKey>
-        <RegistryKey Root="HKLM" Key="Software\Google\Chrome\Extensions\jidfbhpjcelebmiokljcmmljbfgiiolh">
-          <RegistryValue Type="string" Name="update_url" Value="https://clients2.google.com/service/update2/crx" />
-        </RegistryKey>
-        <!-- Chrome Enterprise Force-Install Policy (Silent Auto-Install) -->
-        <RegistryKey Root="HKLM" Key="Software\Policies\Google\Chrome\ExtensionInstallForcelist">
-          <RegistryValue Type="string" Name="SwiftGet" Value="albogoggaijdbgdldghgfcjakpdbmmfm;https://clients2.google.com/service/update2/crx" />
-        </RegistryKey>
 
-        <!-- Edge External Extension (Automatic Prompt to Enable on Launch) -->
+        <!-- Edge External Extension (Offers enable prompt on launch once published in Edge Addons) -->
         <RegistryKey Root="HKLM" Key="Software\Microsoft\Edge\Extensions\albogoggaijdbgdldghgfcjakpdbmmfm">
           <RegistryValue Type="string" Name="update_url" Value="https://edge.microsoft.com/extensionwebstorebase/v1/crx" />
-        </RegistryKey>
-        <RegistryKey Root="HKLM" Key="Software\Microsoft\Edge\Extensions\jidfbhpjcelebmiokljcmmljbfgiiolh">
-          <RegistryValue Type="string" Name="update_url" Value="https://edge.microsoft.com/extensionwebstorebase/v1/crx" />
-        </RegistryKey>
-        <!-- Edge Enterprise Force-Install Policy (Silent Auto-Install) -->
-        <RegistryKey Root="HKLM" Key="Software\Policies\Microsoft\Edge\ExtensionInstallForcelist">
-          <RegistryValue Type="string" Name="SwiftGet" Value="albogoggaijdbgdldghgfcjakpdbmmfm;https://edge.microsoft.com/extensionwebstorebase/v1/crx" />
         </RegistryKey>
 
         <!-- Brave Browser External Extension -->
         <RegistryKey Root="HKLM" Key="Software\BraveSoftware\Brave-Browser\Extensions\albogoggaijdbgdldghgfcjakpdbmmfm">
           <RegistryValue Type="string" Name="update_url" Value="https://clients2.google.com/service/update2/crx" />
-        </RegistryKey>
-        <RegistryKey Root="HKLM" Key="Software\Policies\BraveSoftware\Brave\ExtensionInstallForcelist">
-          <RegistryValue Type="string" Name="SwiftGet" Value="albogoggaijdbgdldghgfcjakpdbmmfm;https://clients2.google.com/service/update2/crx" />
-        </RegistryKey>
-
-        <!-- Firefox External Extension (Direct Extension Directory Auto-Load) -->
-        <RegistryKey Root="HKLM" Key="Software\Mozilla\Firefox\Extensions">
-          <RegistryValue Type="string" Name="swiftget@swiftget.net" Value="[INSTALLFOLDER]extension" />
-        </RegistryKey>
-      </Component>
-
-      <!-- Browser Extension Auto-Installation (HKCU User Scope) -->
-      <Component Id="BrowserExtensionUserComponent" Guid="D4E5F6A7-B8C9-4D8E-9F0A-1B2C3D4E5F60">
-        <RegistryValue Root="HKCU" Key="Software\SwiftGet" Name="BrowserExtensionUserRegistered" Type="integer" Value="1" KeyPath="yes" />
-
-        <!-- Chrome External Extension (User Level) -->
-        <RegistryKey Root="HKCU" Key="Software\Google\Chrome\Extensions\albogoggaijdbgdldghgfcjakpdbmmfm">
-          <RegistryValue Type="string" Name="update_url" Value="https://clients2.google.com/service/update2/crx" />
-        </RegistryKey>
-        <RegistryKey Root="HKCU" Key="Software\Google\Chrome\Extensions\jidfbhpjcelebmiokljcmmljbfgiiolh">
-          <RegistryValue Type="string" Name="update_url" Value="https://clients2.google.com/service/update2/crx" />
-        </RegistryKey>
-        <RegistryKey Root="HKCU" Key="Software\Policies\Google\Chrome\ExtensionInstallForcelist">
-          <RegistryValue Type="string" Name="SwiftGet" Value="albogoggaijdbgdldghgfcjakpdbmmfm;https://clients2.google.com/service/update2/crx" />
-        </RegistryKey>
-
-        <!-- Edge External Extension (User Level) -->
-        <RegistryKey Root="HKCU" Key="Software\Microsoft\Edge\Extensions\albogoggaijdbgdldghgfcjakpdbmmfm">
-          <RegistryValue Type="string" Name="update_url" Value="https://edge.microsoft.com/extensionwebstorebase/v1/crx" />
-        </RegistryKey>
-        <RegistryKey Root="HKCU" Key="Software\Microsoft\Edge\Extensions\jidfbhpjcelebmiokljcmmljbfgiiolh">
-          <RegistryValue Type="string" Name="update_url" Value="https://edge.microsoft.com/extensionwebstorebase/v1/crx" />
-        </RegistryKey>
-        <RegistryKey Root="HKCU" Key="Software\Policies\Microsoft\Edge\ExtensionInstallForcelist">
-          <RegistryValue Type="string" Name="SwiftGet" Value="albogoggaijdbgdldghgfcjakpdbmmfm;https://edge.microsoft.com/extensionwebstorebase/v1/crx" />
-        </RegistryKey>
-
-        <!-- Brave Browser External Extension (User Level) -->
-        <RegistryKey Root="HKCU" Key="Software\BraveSoftware\Brave-Browser\Extensions\albogoggaijdbgdldghgfcjakpdbmmfm">
-          <RegistryValue Type="string" Name="update_url" Value="https://clients2.google.com/service/update2/crx" />
-        </RegistryKey>
-        <RegistryKey Root="HKCU" Key="Software\Policies\BraveSoftware\Brave\ExtensionInstallForcelist">
-          <RegistryValue Type="string" Name="SwiftGet" Value="albogoggaijdbgdldghgfcjakpdbmmfm;https://clients2.google.com/service/update2/crx" />
-        </RegistryKey>
-
-        <!-- Firefox External Extension (User Level) -->
-        <RegistryKey Root="HKCU" Key="Software\Mozilla\Firefox\Extensions">
-          <RegistryValue Type="string" Name="swiftget@swiftget.net" Value="[INSTALLFOLDER]extension" />
         </RegistryKey>
       </Component>
 
@@ -207,10 +182,10 @@
     <WixVariable Id="WixUIDialogBmp" Value="$(var.AssetsDir)\dialog.bmp" />
     <WixVariable Id="WixUIBannerBmp" Value="$(var.AssetsDir)\banner.bmp" />
 
-    <!-- Launch App Option on Finish Dialog -->
+    <!-- Launch App Option on Finish Dialog (launch via explorer.exe so app starts de-elevated as interactive user) -->
     <Property Id="WIXUI_EXITDIALOGOPTIONALCHECKBOXTEXT" Value="Launch SwiftGet Download Manager" />
     <Property Id="WIXUI_EXITDIALOGOPTIONALCHECKBOX" Value="1" />
-    <CustomAction Id="LaunchApp" Directory="INSTALLFOLDER" ExeCommand="[INSTALLFOLDER]SwiftGet.App.exe" Execute="immediate" Return="asyncNoWait" />
+    <CustomAction Id="LaunchApp" Directory="INSTALLFOLDER" ExeCommand="[WindowsFolder]explorer.exe &quot;[INSTALLFOLDER]SwiftGet.App.exe&quot;" Execute="immediate" Return="asyncNoWait" />
     <UI>
       <Publish Dialog="ExitDialog" Control="Finish" Event="DoAction" Value="LaunchApp" Condition="WIXUI_EXITDIALOGOPTIONALCHECKBOX = 1 and NOT Installed" />
     </UI>

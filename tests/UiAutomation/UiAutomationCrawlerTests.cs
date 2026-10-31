@@ -101,7 +101,7 @@ public class UiAutomationCrawlerTests : IDisposable
         allIds.Should().Contain("Toolbar_AddDownload");
         allIds.Should().Contain("Sidebar_CategoryList");
         allIds.Should().Contain("Downloads_ListView");
-        allIds.Should().Contain("Inspector_TabGeneral");
+        allIds.Should().Contain("Toolbar_SearchBox");
         allIds.Should().Contain("StatusBar_SnailMode");
     }
 

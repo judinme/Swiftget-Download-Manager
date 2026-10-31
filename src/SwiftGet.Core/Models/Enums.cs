@@ -34,6 +34,13 @@ public enum TorrentFilePriority
     Highest = 5
 }
 
+public enum TorrentEncryptionMode
+{
+    PreferEncryption = 0,
+    RequireEncryption = 1,
+    AllowPlaintext = 2
+}
+
 public enum SegmentStatus
 {
     Pending,
@@ -58,4 +65,12 @@ public enum AfterCompletionAction
     Hibernate,
     Shutdown,
     ExecuteCommand
+}
+
+public enum PieceState : byte
+{
+    Missing = 0,
+    Downloading = 1,
+    Downloaded = 2,
+    Verifying = 3
 }

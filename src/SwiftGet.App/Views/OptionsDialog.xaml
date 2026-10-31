@@ -161,7 +161,7 @@
             <TabViewItem Header="BitTorrent" IsClosable="False">
                 <ScrollViewer VerticalScrollBarVisibility="Auto" Padding="4,8">
                     <StackPanel Spacing="12">
-                        <!-- Port & UPnP -->
+                        <!-- Port & NAT -->
                         <Border Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
                                 BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
                                 BorderThickness="1" CornerRadius="4" Padding="12">
@@ -171,44 +171,66 @@
                                     <Grid.ColumnDefinitions>
                                         <ColumnDefinition Width="*" />
                                         <ColumnDefinition Width="Auto" />
+                                        <ColumnDefinition Width="Auto" />
                                     </Grid.ColumnDefinitions>
                                     <NumberBox Header="Incoming Listen Port:"
                                                Value="{x:Bind ViewModel.TorrentListenPort, Mode=TwoWay}"
                                                Minimum="1024" Maximum="65535" SmallChange="1" SpinButtonPlacementMode="Inline" />
                                     <Button Grid.Column="1" VerticalAlignment="Bottom" Content="Randomize"
                                             Command="{x:Bind ViewModel.RandomizePortCommand}" Margin="0,0,0,2" />
+                                    <StackPanel Grid.Column="2" Orientation="Horizontal" VerticalAlignment="Bottom" Spacing="6" Margin="0,0,0,2">
+                                        <Button Content="Test Port" Command="{x:Bind ViewModel.TestPortCommand}" />
+                                        <ProgressRing IsActive="{x:Bind ViewModel.IsTestingPort, Mode=OneWay}" Width="16" Height="16" VerticalAlignment="Center" />
+                                    </StackPanel>
                                 </Grid>
+                                <TextBlock Text="{x:Bind ViewModel.PortTestStatus, Mode=OneWay}"
+                                           FontSize="11" Foreground="{ThemeResource TextFillColorSecondaryBrush}" TextWrapping="Wrap" />
+                                <CheckBox Content="Randomize incoming listen port on application startup"
+                                          IsChecked="{x:Bind ViewModel.TorrentRandomizePortOnStartup, Mode=TwoWay}" />
                                 <CheckBox Content="Enable UPnP / NAT-PMP automatic port forwarding"
                                           IsChecked="{x:Bind ViewModel.TorrentEnableUpnp, Mode=TwoWay}" />
                             </StackPanel>
                         </Border>
 
-                        <!-- Protocol Features -->
+                        <!-- Protocol & Encryption -->
                         <Border Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
                                 BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
                                 BorderThickness="1" CornerRadius="4" Padding="12">
                             <StackPanel Spacing="10">
-                                <TextBlock Text="Protocol Options:" FontWeight="SemiBold" />
+                                <TextBlock Text="Protocol &amp; Encryption:" FontWeight="SemiBold" />
+                                <ComboBox Header="Peer Encryption Mode:" HorizontalAlignment="Stretch"
+                                          SelectedIndex="{x:Bind ViewModel.TorrentEncryptionModeIndex, Mode=TwoWay}">
+                                    <ComboBoxItem Content="Prefer Encryption (RC4 with Plaintext fallback)" />
+                                    <ComboBoxItem Content="Require Encryption (Strict RC4 encryption only)" />
+                                    <ComboBoxItem Content="Allow Plaintext (No encryption required)" />
+                                </ComboBox>
                                 <CheckBox Content="Enable Distributed Hash Table (DHT / trackerless networks)"
                                           IsChecked="{x:Bind ViewModel.TorrentEnableDht, Mode=TwoWay}" />
                                 <CheckBox Content="Enable Peer Exchange (PeX / BEP 11)"
                                           IsChecked="{x:Bind ViewModel.TorrentEnablePex, Mode=TwoWay}" />
                                 <CheckBox Content="Enable Local Peer Discovery (LSD / multicast)"
                                           IsChecked="{x:Bind ViewModel.TorrentEnableLsd, Mode=TwoWay}" />
-                                <CheckBox Content="Prefer encrypted peer connections (BEP 8 / MSE)"
-                                          IsChecked="{x:Bind ViewModel.TorrentPreferEncryption, Mode=TwoWay}" />
                             </StackPanel>
                         </Border>
 
-                        <!-- Limits -->
+                        <!-- Connections & Limits -->
                         <Border Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
                                 BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
                                 BorderThickness="1" CornerRadius="4" Padding="12">
                             <StackPanel Spacing="10">
                                 <TextBlock Text="Connections &amp; Bandwidth Limits:" FontWeight="SemiBold" />
-                                <NumberBox Header="Maximum Global Connections:"
-                                           Value="{x:Bind ViewModel.TorrentMaxConnections, Mode=TwoWay}"
-                                           Minimum="10" Maximum="2000" SmallChange="10" SpinButtonPlacementMode="Inline" />
+                                <Grid ColumnSpacing="12">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*" />
+                                        <ColumnDefinition Width="*" />
+                                    </Grid.ColumnDefinitions>
+                                    <NumberBox Grid.Column="0" Header="Maximum Global Connections:"
+                                               Value="{x:Bind ViewModel.TorrentMaxConnections, Mode=TwoWay}"
+                                               Minimum="10" Maximum="2000" SmallChange="10" SpinButtonPlacementMode="Inline" />
+                                    <NumberBox Grid.Column="1" Header="Max Connections per Torrent:"
+                                               Value="{x:Bind ViewModel.TorrentMaxConnectionsPerTorrent, Mode=TwoWay}"
+                                               Minimum="5" Maximum="300" SmallChange="5" SpinButtonPlacementMode="Inline" />
+                                </Grid>
                                 <Grid ColumnSpacing="12">
                                     <Grid.ColumnDefinitions>
                                         <ColumnDefinition Width="*" />
@@ -221,15 +243,61 @@
                                                Value="{x:Bind ViewModel.TorrentMaxUploadRateKbps, Mode=TwoWay}"
                                                Minimum="0" Maximum="1000000" SmallChange="128" SpinButtonPlacementMode="Inline" />
                                 </Grid>
+
+                                <TextBlock Text="Alternative (Snail Mode) Speed Limits:" FontWeight="SemiBold" Margin="0,4,0,0" />
+                                <Grid ColumnSpacing="12">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*" />
+                                        <ColumnDefinition Width="*" />
+                                    </Grid.ColumnDefinitions>
+                                    <NumberBox Grid.Column="0" Header="Snail Download Limit (KB/s):"
+                                               Value="{x:Bind ViewModel.TorrentAltDownloadRateKbps, Mode=TwoWay}"
+                                               Minimum="16" Maximum="1000000" SmallChange="64" SpinButtonPlacementMode="Inline" />
+                                    <NumberBox Grid.Column="1" Header="Snail Upload Limit (KB/s):"
+                                               Value="{x:Bind ViewModel.TorrentAltUploadRateKbps, Mode=TwoWay}"
+                                               Minimum="16" Maximum="1000000" SmallChange="64" SpinButtonPlacementMode="Inline" />
+                                </Grid>
+
+                                <CheckBox Content="Enable Scheduled Speed Limits (active daily during specified hours)"
+                                          IsChecked="{x:Bind ViewModel.TorrentEnableSchedule, Mode=TwoWay}" Margin="0,4,0,0" />
+                                <Grid ColumnSpacing="12">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*" />
+                                        <ColumnDefinition Width="*" />
+                                    </Grid.ColumnDefinitions>
+                                    <NumberBox Grid.Column="0" Header="Schedule Start Hour (0-23):"
+                                               Value="{x:Bind ViewModel.TorrentScheduleStartHour, Mode=TwoWay}"
+                                               IsEnabled="{x:Bind ViewModel.TorrentEnableSchedule, Mode=OneWay}"
+                                               Minimum="0" Maximum="23" SmallChange="1" SpinButtonPlacementMode="Inline" />
+                                    <NumberBox Grid.Column="1" Header="Schedule End Hour (0-23):"
+                                               Value="{x:Bind ViewModel.TorrentScheduleEndHour, Mode=TwoWay}"
+                                               IsEnabled="{x:Bind ViewModel.TorrentEnableSchedule, Mode=OneWay}"
+                                               Minimum="0" Maximum="23" SmallChange="1" SpinButtonPlacementMode="Inline" />
+                                </Grid>
                             </StackPanel>
                         </Border>
 
-                        <!-- Seeding Limits -->
+                        <!-- Storage & Seeding Rules -->
                         <Border Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
                                 BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
                                 BorderThickness="1" CornerRadius="4" Padding="12">
                             <StackPanel Spacing="10">
-                                <TextBlock Text="Seeding Rules:" FontWeight="SemiBold" />
+                                <TextBlock Text="Storage &amp; Seeding Rules:" FontWeight="SemiBold" />
+                                <Grid ColumnSpacing="8">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*" />
+                                        <ColumnDefinition Width="Auto" />
+                                    </Grid.ColumnDefinitions>
+                                    <TextBox Grid.Column="0" Header="Default Torrent Save Directory:"
+                                             Text="{x:Bind ViewModel.TorrentDefaultSaveDirectory, Mode=TwoWay}"
+                                             PlaceholderText="C:\Users\...\Downloads" />
+                                    <Button Grid.Column="1" VerticalAlignment="Bottom" Content="Browse..."
+                                            Click="BrowseDefaultSaveDirectory_Click" Margin="0,0,0,2" />
+                                </Grid>
+
+                                <CheckBox Content="Append .swiftget extension to incomplete files"
+                                          IsChecked="{x:Bind ViewModel.TorrentUsePartialFiles, Mode=TwoWay}" />
+
                                 <Grid ColumnSpacing="12">
                                     <Grid.ColumnDefinitions>
                                         <ColumnDefinition Width="*" />
@@ -242,6 +310,52 @@
                                                Value="{x:Bind ViewModel.TorrentDefaultSeedTimeMins, Mode=TwoWay}"
                                                Minimum="0" Maximum="100000" SmallChange="30" SpinButtonPlacementMode="Inline" />
                                 </Grid>
+
+                                <CheckBox Content="Stop seeding automatically when ratio or time limit is reached"
+                                          IsChecked="{x:Bind ViewModel.TorrentStopSeedingWhenLimitReached, Mode=TwoWay}" />
+                            </StackPanel>
+                        </Border>
+
+                        <!-- Default Trackers -->
+                        <Border Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+                                BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                                BorderThickness="1" CornerRadius="4" Padding="12">
+                            <StackPanel Spacing="8">
+                                <TextBlock Text="Default Public Trackers:" FontWeight="SemiBold" />
+                                <TextBlock Text="These verified trackers will be appended to new magnet links and torrents to guarantee fast peer discovery:"
+                                           FontSize="12" Foreground="{ThemeResource TextFillColorSecondaryBrush}" TextWrapping="Wrap" />
+                                <TextBox Text="{x:Bind ViewModel.TorrentDefaultTrackersText, Mode=TwoWay}"
+                                         AcceptsReturn="True" TextWrapping="NoWrap" Height="90"
+                                         ScrollViewer.VerticalScrollBarVisibility="Auto" />
+                                <Button Content="Reset Trackers to Recommended"
+                                        Command="{x:Bind ViewModel.ResetTrackersCommand}" HorizontalAlignment="Left" />
+                            </StackPanel>
+                        </Border>
+
+                        <!-- IP Filter / Blocklist -->
+                        <Border Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+                                BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                                BorderThickness="1" CornerRadius="4" Padding="12">
+                            <StackPanel Spacing="10">
+                                <TextBlock Text="IP Filter / P2P Blocklist:" FontWeight="SemiBold" />
+                                <CheckBox Content="Enable IP Filter (Blocklist)"
+                                          IsChecked="{x:Bind ViewModel.TorrentEnableIpFilter, Mode=TwoWay}" />
+                                <Grid ColumnSpacing="8">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*" />
+                                        <ColumnDefinition Width="Auto" />
+                                    </Grid.ColumnDefinitions>
+                                    <TextBox Grid.Column="0" Header="IP Filter File Path (ipfilter.dat or P2P blocklist):"
+                                             Text="{x:Bind ViewModel.TorrentIpFilterPath, Mode=TwoWay}"
+                                             IsEnabled="{x:Bind ViewModel.TorrentEnableIpFilter, Mode=OneWay}"
+                                             PlaceholderText="C:\...\ipfilter.dat" />
+                                    <Button Grid.Column="1" VerticalAlignment="Bottom" Content="Browse..."
+                                            Click="BrowseIpFilter_Click"
+                                            IsEnabled="{x:Bind ViewModel.TorrentEnableIpFilter, Mode=OneWay}"
+                                            Margin="0,0,0,2" />
+                                </Grid>
+                                <TextBlock Text="{x:Bind ViewModel.IpFilterStatus, Mode=OneWay}"
+                                           FontSize="12" Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
                             </StackPanel>
                         </Border>
 
@@ -259,6 +373,19 @@
                                     <Button Content="Default Apps Settings"
                                             Command="{x:Bind ViewModel.OpenDefaultAppsCommand}" />
                                 </StackPanel>
+                            </StackPanel>
+                        </Border>
+
+                        <!-- Reset Defaults Button -->
+                        <Border Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+                                BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                                BorderThickness="1" CornerRadius="4" Padding="12">
+                            <StackPanel Spacing="8">
+                                <TextBlock Text="Reset BitTorrent Configuration:" FontWeight="SemiBold" />
+                                <TextBlock Text="Restore all BitTorrent ports, protocol settings, connection limits, and recommended trackers to standard defaults."
+                                           FontSize="12" Foreground="{ThemeResource TextFillColorSecondaryBrush}" TextWrapping="Wrap" />
+                                <Button Content="Reset BitTorrent Settings to Defaults"
+                                        Command="{x:Bind ViewModel.ResetTorrentDefaultsCommand}" />
                             </StackPanel>
                         </Border>
                     </StackPanel>

@@ -89,15 +89,10 @@ public static class Program
         using var categoryManager = new CategoryManager(db);
         await categoryManager.InitializeAsync().ConfigureAwait(false);
 
-        var fileName = cli.FileName;
-        if (string.IsNullOrWhiteSpace(fileName))
-        {
-            if (Uri.TryCreate(cli.Url, UriKind.Absolute, out var uri))
-            {
-                var candidate = Path.GetFileName(uri.LocalPath);
-                if (!string.IsNullOrWhiteSpace(candidate)) fileName = candidate;
-            }
-        }
+        var resolver = new SwiftGet.Core.IO.FileNameResolver();
+        var fileName = !string.IsNullOrWhiteSpace(cli.FileName)
+            ? cli.FileName
+            : resolver.ResolveInitialCandidate(cli.Url);
         if (string.IsNullOrWhiteSpace(fileName)) fileName = "download.bin";
 
         var category = categoryManager.ResolveCategory(fileName);

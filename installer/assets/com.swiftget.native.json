@@ -4,8 +4,6 @@
   "path": "SwiftGet.NativeHost.exe",
   "type": "stdio",
   "allowed_origins": [
-    "chrome-extension://jidfbhpjcelebmiokljcmmljbfgiiolh/",
-    "chrome-extension://albogoggaijdbgdldghgfcjakpdbmmfm/",
-    "chrome-extension://swiftget-extension-id/"
+    "chrome-extension://albogoggaijdbgdldghgfcjakpdbmmfm/"
   ]
 }

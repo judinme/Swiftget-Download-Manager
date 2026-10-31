@@ -2,6 +2,31 @@
 
 let isAltHeld = false;
 let isInsertHeld = false;
+let isSnifferEnabled = true;
+
+try {
+  const api = typeof chrome !== "undefined" ? chrome : (typeof browser !== "undefined" ? browser : null);
+  if (api && api.storage && api.storage.local && typeof api.storage.local.get === "function") {
+    const p = api.storage.local.get(["snifferEnabled"]);
+    if (p && typeof p.then === "function") {
+      p.then((st) => {
+        if (st && st.snifferEnabled === false) {
+          isSnifferEnabled = false;
+        }
+      }).catch(() => {});
+    }
+  }
+  if (api && api.storage && api.storage.onChanged && typeof api.storage.onChanged.addListener === "function") {
+    api.storage.onChanged.addListener((changes) => {
+      if (changes && changes.snifferEnabled) {
+        isSnifferEnabled = changes.snifferEnabled.newValue !== false;
+        if (isSnifferEnabled) {
+          scanAndAttachVideoOverlays();
+        }
+      }
+    });
+  }
+} catch {}
 
 function getExtensionApi() {
   return typeof chrome !== "undefined" ? chrome : (typeof browser !== "undefined" ? browser : null);
@@ -146,24 +171,80 @@ if (typeof window !== "undefined") {
 }
 
 // ----------------------------------------------------
-// Link Grabber
+// Link Grabber & Classification
 // ----------------------------------------------------
+function classifyLinkCategory(url) {
+  if (!url) return "general";
+  const lower = url.toLowerCase().split(/[?#]/)[0];
+  if (lower.startsWith("magnet:?")) return "torrent";
+
+  const extMatch = lower.match(/\.([a-z0-9]{2,5})$/);
+  const ext = extMatch ? "." + extMatch[1] : "";
+
+  const videoExts = [".mp4", ".mkv", ".avi", ".mov", ".wmv", ".flv", ".webm", ".m4v", ".ts", ".m3u8", ".mpd"];
+  const audioExts = [".mp3", ".m4a", ".aac", ".wav", ".flac", ".ogg", ".wma", ".opus"];
+  const archiveExts = [".zip", ".rar", ".7z", ".tar", ".gz", ".bz2", ".xz", ".iso", ".dmg", ".cab"];
+  const docExts = [".pdf", ".doc", ".docx", ".xls", ".xlsx", ".ppt", ".pptx", ".txt", ".rtf", ".epub"];
+  const imageExts = [".jpg", ".jpeg", ".png", ".gif", ".webp", ".svg", ".bmp", ".ico", ".tiff"];
+  const torrentExts = [".torrent"];
+
+  if (videoExts.includes(ext)) return "video";
+  if (audioExts.includes(ext)) return "audio";
+  if (archiveExts.includes(ext)) return "archive";
+  if (docExts.includes(ext)) return "document";
+  if (imageExts.includes(ext)) return "image";
+  if (torrentExts.includes(ext)) return "torrent";
+
+  return "general";
+}
+
 if (typeof chrome !== "undefined" && chrome.runtime && chrome.runtime.onMessage) {
   chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     if (request && request.type === "GATHER_ALL_LINKS" && typeof document !== "undefined") {
-      const anchors = document.querySelectorAll ? document.querySelectorAll("a[href]") : [];
+      const candidates = [];
+      if (document.querySelectorAll) {
+        const anchors = document.querySelectorAll("a[href], area[href]");
+        anchors.forEach(a => {
+          candidates.push({
+            rawHref: a.getAttribute("href") || a.href,
+            text: (a.textContent || a.title || a.alt || "").trim()
+          });
+        });
+
+        // Also discover embedded media sources
+        const mediaSources = document.querySelectorAll("video source[src], audio source[src]");
+        mediaSources.forEach(s => {
+          const src = s.getAttribute("src");
+          if (src) {
+            candidates.push({
+              rawHref: src,
+              text: (s.getAttribute("title") || s.parentElement?.title || "Media Stream").trim()
+            });
+          }
+        });
+      }
+
       const seen = new Set();
       const links = [];
+      const base = document.baseURI || (typeof window !== "undefined" && window.location && window.location.href) || "";
 
-      for (const a of anchors) {
+      for (const item of candidates) {
+        const raw = (item.rawHref || "").trim();
+        if (!raw || raw.startsWith("#") || raw.startsWith("javascript:") || raw.startsWith("mailto:") || raw.startsWith("tel:")) {
+          continue;
+        }
+
         try {
-          const base = document.baseURI || window.location.href || "";
-          const url = new URL(a.href, base).href;
-          if ((url.startsWith("http://") || url.startsWith("https://")) && !seen.has(url)) {
+          const url = raw.startsWith("magnet:?") ? raw : new URL(raw, base).href;
+          if ((url.startsWith("http://") || url.startsWith("https://") || url.startsWith("magnet:?")) && !seen.has(url)) {
             seen.add(url);
+            const extMatch = url.split(/[?#]/)[0].match(/\.([a-z0-9]{2,5})$/i);
+            const ext = extMatch ? "." + extMatch[1].toLowerCase() : "";
             links.push({
               url: url,
-              text: (a.textContent || a.title || "").trim()
+              text: item.text,
+              ext: ext,
+              category: classifyLinkCategory(url)
             });
           }
         } catch {
@@ -209,6 +290,7 @@ const SG_ICONS = {
 // Media Sniffer Floating Overlay (4-Stage IDM Flow for Video & Audio)
 // ----------------------------------------------------
 function scanAndAttachVideoOverlays() {
+  if (!isSnifferEnabled) return;
   if (typeof document === "undefined" || !document.querySelectorAll) return;
 
   const mediaElements = document.querySelectorAll("video, audio");
@@ -431,6 +513,36 @@ if (typeof document !== "undefined") {
     });
   } else {
     scanAndAttachVideoOverlays();
+  }
+
+  // Active MutationObserver for instant detection of dynamically mounted video players
+  if (typeof MutationObserver !== "undefined") {
+    try {
+      const observer = new MutationObserver((mutations) => {
+        let shouldScan = false;
+        for (const m of mutations) {
+          if (m.addedNodes && m.addedNodes.length > 0) {
+            for (const node of m.addedNodes) {
+              if (node.nodeType === 1) {
+                if (node.tagName === "VIDEO" || node.tagName === "AUDIO" || (node.querySelector && node.querySelector("video, audio"))) {
+                  shouldScan = true;
+                  break;
+                }
+              }
+            }
+          }
+          if (shouldScan) break;
+        }
+        if (shouldScan) {
+          scanAndAttachVideoOverlays();
+        }
+      });
+
+      const rootTarget = document.documentElement || document.body;
+      if (rootTarget) {
+        observer.observe(rootTarget, { childList: true, subtree: true });
+      }
+    } catch {}
   }
 }
 

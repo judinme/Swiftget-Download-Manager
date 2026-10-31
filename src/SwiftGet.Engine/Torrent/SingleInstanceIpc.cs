@@ -21,6 +21,9 @@ public sealed record SingleInstanceMessage
     public bool Silent { get; init; }
     public string? CorrelationId { get; init; }
     public string? JobKind { get; init; }
+    public string? Cookies { get; init; }
+    public string? Referrer { get; init; }
+    public string? UserAgent { get; init; }
     public string[]? RawArgs { get; init; }
 }
 

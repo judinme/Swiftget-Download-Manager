@@ -4,6 +4,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
+using SwiftGet.Core.IO;
 using SwiftGet.Core.Models;
 using SwiftGet.Core.Storage;
 using SwiftGet.Engine.Categories;
@@ -14,6 +15,7 @@ public sealed partial class DropBoxViewModel : ObservableObject
 {
     private readonly ISwiftGetDatabase _db;
     private readonly ICategoryManager _categoryManager;
+    private readonly IFileNameResolver _fileNameResolver;
 
     [ObservableProperty]
     private int _droppedCount;
@@ -27,10 +29,11 @@ public sealed partial class DropBoxViewModel : ObservableObject
     [ObservableProperty]
     private bool _isDraggingOver;
 
-    public DropBoxViewModel(ISwiftGetDatabase db, ICategoryManager categoryManager)
+    public DropBoxViewModel(ISwiftGetDatabase db, ICategoryManager categoryManager, IFileNameResolver? fileNameResolver = null)
     {
         _db = db ?? throw new ArgumentNullException(nameof(db));
         _categoryManager = categoryManager ?? throw new ArgumentNullException(nameof(categoryManager));
+        _fileNameResolver = fileNameResolver ?? new SwiftGet.Core.IO.FileNameResolver();
     }
 
     public async Task<int> HandleDroppedTextAsync(string text, CancellationToken ct = default)
@@ -49,7 +52,7 @@ public sealed partial class DropBoxViewModel : ObservableObject
                 (uri.Scheme.Equals("http", StringComparison.OrdinalIgnoreCase) ||
                  uri.Scheme.Equals("https", StringComparison.OrdinalIgnoreCase)))
             {
-                var fileName = Path.GetFileName(uri.LocalPath);
+                var fileName = _fileNameResolver.ResolveInitialCandidate(uri.AbsoluteUri);
                 if (string.IsNullOrWhiteSpace(fileName))
                 {
                     fileName = "download_" + DateTime.UtcNow.Ticks + ".bin";

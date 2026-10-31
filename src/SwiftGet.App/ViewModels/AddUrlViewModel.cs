@@ -14,6 +14,10 @@ namespace SwiftGet.App.ViewModels;
 public sealed partial class AddUrlViewModel : ObservableObject
 {
     private readonly HttpProbeService _probeService;
+    private readonly IFileNameResolver _fileNameResolver;
+    private bool _isInternalFileNameUpdate;
+
+    public bool UserHasExplicitlyEditedFileName { get; set; }
 
     [ObservableProperty]
     private string _url = string.Empty;
@@ -74,9 +78,35 @@ public sealed partial class AddUrlViewModel : ObservableObject
     [ObservableProperty]
     private string _freeDiskSpace = string.Empty;
 
-    public string CategoryPath => PathResolver.GetPhysicalPath(Path.Combine(SaveDirectory, SelectedCategory)) + Path.DirectorySeparatorChar;
+    public string? CookiesJson { get; set; }
+    public string? Referrer { get; set; }
+    public string? UserAgent { get; set; }
 
-    public string FullSavePath => PathResolver.GetPhysicalPath(Path.Combine(SaveDirectory, SelectedCategory, FileName));
+    public string CategoryPath => PathResolver.GetPhysicalPath(ResolveCategoryDirectory(SaveDirectory, SelectedCategory)) + Path.DirectorySeparatorChar;
+
+    public string FullSavePath => PathResolver.GetPhysicalPath(Path.Combine(ResolveCategoryDirectory(SaveDirectory, SelectedCategory), FileName));
+
+    private static string ResolveCategoryDirectory(string saveDirectory, string selectedCategory)
+    {
+        if (string.IsNullOrWhiteSpace(saveDirectory))
+        {
+            return selectedCategory ?? string.Empty;
+        }
+
+        if (string.IsNullOrWhiteSpace(selectedCategory))
+        {
+            return saveDirectory;
+        }
+
+        var trimmed = saveDirectory.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+        var lastSegment = Path.GetFileName(trimmed);
+        if (string.Equals(lastSegment, selectedCategory, StringComparison.OrdinalIgnoreCase))
+        {
+            return trimmed;
+        }
+
+        return Path.Combine(trimmed, selectedCategory);
+    }
 
     public ObservableCollection<string> Categories { get; } =
     [
@@ -95,9 +125,10 @@ public sealed partial class AddUrlViewModel : ObservableObject
         "None"
     ];
 
-    public AddUrlViewModel(HttpProbeService probeService)
+    public AddUrlViewModel(HttpProbeService probeService, IFileNameResolver? fileNameResolver = null)
     {
         _probeService = probeService ?? throw new ArgumentNullException(nameof(probeService));
+        _fileNameResolver = fileNameResolver ?? new FileNameResolver();
         var downloads = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "Downloads");
         _saveDirectory = PathResolver.GetPhysicalPath(downloads);
         UpdateFreeSpace();
@@ -114,12 +145,20 @@ public sealed partial class AddUrlViewModel : ObservableObject
 
     partial void OnUrlChanged(string value)
     {
-        if (string.IsNullOrWhiteSpace(FileName) && Uri.TryCreate(value, UriKind.Absolute, out Uri? uri))
+        if (string.IsNullOrWhiteSpace(FileName) && !UserHasExplicitlyEditedFileName)
         {
-            string candidate = Path.GetFileName(uri.LocalPath);
+            string candidate = _fileNameResolver.ResolveInitialCandidate(value);
             if (!string.IsNullOrWhiteSpace(candidate))
             {
-                FileName = candidate;
+                _isInternalFileNameUpdate = true;
+                try
+                {
+                    FileName = candidate;
+                }
+                finally
+                {
+                    _isInternalFileNameUpdate = false;
+                }
                 AutoAssignCategory(candidate);
             }
         }
@@ -127,6 +166,10 @@ public sealed partial class AddUrlViewModel : ObservableObject
 
     partial void OnFileNameChanged(string value)
     {
+        if (!_isInternalFileNameUpdate && !string.IsNullOrWhiteSpace(value))
+        {
+            UserHasExplicitlyEditedFileName = true;
+        }
         AutoAssignCategory(value);
     }
 
@@ -158,13 +201,26 @@ public sealed partial class AddUrlViewModel : ObservableObject
             IsProbing = true;
             StatusMessage = "Probing server...";
 
-            ProbeResult result = await _probeService.ProbeAsync(Url, ct: cancellationToken).ConfigureAwait(true);
+            ProbeResult result = await _probeService.ProbeAsync(
+                Url,
+                cookies: CookiesJson,
+                userAgent: UserAgent,
+                referrer: Referrer,
+                ct: cancellationToken).ConfigureAwait(true);
             FileSize = result.TotalBytes;
             ResumeSupported = result.SupportsRanges;
 
-            if (!string.IsNullOrWhiteSpace(result.SuggestedFileName))
+            if (!UserHasExplicitlyEditedFileName && !string.IsNullOrWhiteSpace(result.SuggestedFileName))
             {
-                FileName = result.SuggestedFileName;
+                _isInternalFileNameUpdate = true;
+                try
+                {
+                    FileName = result.SuggestedFileName;
+                }
+                finally
+                {
+                    _isInternalFileNameUpdate = false;
+                }
                 AutoAssignCategory(result.SuggestedFileName);
             }
 
@@ -188,14 +244,15 @@ public sealed partial class AddUrlViewModel : ObservableObject
             return;
         }
 
-        string ext = Path.GetExtension(fileName).ToLowerInvariant();
+        string ext = _fileNameResolver.GetCompoundExtension(fileName).ToLowerInvariant();
         SelectedCategory = ext switch
         {
-            ".zip" or ".rar" or ".7z" or ".tar" or ".gz" or ".bz2" or ".iso" => "Compressed",
-            ".pdf" or ".doc" or ".docx" or ".xls" or ".xlsx" or ".ppt" or ".pptx" or ".txt" => "Documents",
-            ".mp3" or ".flac" or ".wav" or ".aac" or ".m4a" or ".ogg" => "Music",
-            ".exe" or ".msi" or ".bat" or ".apk" or ".msix" => "Programs",
-            ".mp4" or ".mkv" or ".avi" or ".mov" or ".webm" => "Video",
+            ".zip" or ".rar" or ".7z" or ".tar" or ".gz" or ".bz2" or ".xz" or ".zst" or ".iso" or ".tgz"
+                or ".tar.gz" or ".tar.bz2" or ".tar.xz" or ".tar.zst" => "Compressed",
+            ".pdf" or ".doc" or ".docx" or ".xls" or ".xlsx" or ".ppt" or ".pptx" or ".txt" or ".epub" or ".csv" => "Documents",
+            ".mp3" or ".flac" or ".wav" or ".aac" or ".m4a" or ".ogg" or ".wma" or ".opus" => "Music",
+            ".exe" or ".msi" or ".bat" or ".cmd" or ".ps1" or ".apk" or ".appx" or ".msix" or ".dmg" => "Programs",
+            ".mp4" or ".mkv" or ".avi" or ".mov" or ".webm" or ".wmv" or ".flv" or ".m4v" or ".ts" => "Video",
             _ => "General"
         };
     }

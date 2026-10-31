@@ -648,5 +648,170 @@ test('Content Script: Media item click dispatches INTERCEPT_MEDIA with correlati
   assert.ok(!contentScriptCode.includes('showDownloadCompleteModal'), 'contentScriptCode must not inject simulated download complete modal');
 });
 
+test('Background Worker: onInstalled registers context menu for text selection', async () => {
+  const env = createBackgroundMockEnvironment();
+  const runWorker = new Function('chrome', 'navigator', backgroundScriptCode);
+  runWorker(env.mockChrome, env.mockNavigator);
+
+  assert.equal(env.listeners.installed.length, 1);
+  await env.listeners.installed[0]();
+
+  const selectionMenu = env.contextMenusCreated.find(m => m.id === 'swiftget_download_selected');
+  assert.ok(selectionMenu, 'swiftget_download_selected menu should be created');
+  assert.deepEqual(selectionMenu.contexts, ['selection']);
+});
+
+test('Background Worker: Context menu swiftget_download_selected parses text and dispatches URLs', async () => {
+  const env = createBackgroundMockEnvironment();
+  const runWorker = new Function('chrome', 'navigator', backgroundScriptCode);
+  runWorker(env.mockChrome, env.mockNavigator);
+
+  assert.equal(env.listeners.installed.length, 1);
+  await env.listeners.installed[0]();
+
+  const clickHandler = env.listeners.contextClicked[0];
+  assert.ok(clickHandler, 'Context menu click handler must be registered');
+
+  await clickHandler({
+    menuItemId: 'swiftget_download_selected',
+    selectionText: 'Links: https://example.com/archive.zip and magnet:?xt=urn:btih:0123456789abcdef0123456789abcdef01234567'
+  }, { url: 'https://example.com/page.html' });
+
+  const zipMsg = env.nativeMessages.find(m => m.payload.url === 'https://example.com/archive.zip');
+  assert.ok(zipMsg, 'Should dispatch https link from selection');
+  assert.equal(zipMsg.payload.cookies, 'auth_session=secret_token_123');
+
+  const magnetMsg = env.nativeMessages.find(m => m.payload.action === 'addMagnet');
+  assert.ok(magnetMsg, 'Should dispatch magnet link from selection');
+});
+
+test('Background Worker: Context menu swiftget_download_media downloads image with cookies', async () => {
+  const env = createBackgroundMockEnvironment();
+  const runWorker = new Function('chrome', 'navigator', backgroundScriptCode);
+  runWorker(env.mockChrome, env.mockNavigator);
+
+  assert.equal(env.listeners.installed.length, 1);
+  await env.listeners.installed[0]();
+
+  const clickHandler = env.listeners.contextClicked[0];
+  await clickHandler({
+    menuItemId: 'swiftget_download_media',
+    srcUrl: 'https://example.com/assets/banner.png'
+  }, { url: 'https://example.com/index.html' });
+
+  const imgMsg = env.nativeMessages.find(m => m.payload.url === 'https://example.com/assets/banner.png');
+  assert.ok(imgMsg, 'Should dispatch media download from context menu');
+  assert.equal(imgMsg.payload.cookies, 'auth_session=secret_token_123');
+});
+
+test('Content Script: Link grabber classifies links by category', () => {
+  const { mockChrome, mockWindow, mockDocument } = createMockEnvironment();
+
+  const mockLinks = [
+    { href: 'https://example.com/video.mp4', textContent: 'Movie Clip' },
+    { href: 'https://example.com/song.mp3', textContent: 'Song Track' },
+    { href: 'https://example.com/archive.zip', textContent: 'Backup' },
+    { href: 'https://example.com/manual.pdf', textContent: 'User Manual' },
+    { href: 'https://example.com/photo.jpg', textContent: 'Snapshot' },
+    { href: 'magnet:?xt=urn:btih:abc', textContent: 'Torrent Magnet' },
+    { href: 'javascript:void(0)', textContent: 'Ignore Script' },
+    { href: '#section2', textContent: 'Ignore Anchor' }
+  ];
+
+  mockDocument.querySelectorAll = (sel) => {
+    if (sel.includes('a[href]')) {
+      return mockLinks.map(l => ({
+        href: l.href,
+        getAttribute: (attr) => attr === 'href' ? l.href : null,
+        textContent: l.textContent,
+        title: ''
+      }));
+    }
+    return [];
+  };
+
+  let messageHandler = null;
+  mockChrome.runtime.onMessage.addListener = (fn) => {
+    messageHandler = fn;
+  };
+
+  const runScript = new Function('window', 'document', 'chrome', contentScriptCode);
+  runScript(mockWindow, mockDocument, mockChrome);
+
+  assert.ok(messageHandler, 'onMessage handler must be registered');
+
+  let responseData = null;
+  messageHandler({ type: 'GATHER_ALL_LINKS' }, {}, (resp) => {
+    responseData = resp;
+  });
+
+  assert.ok(responseData && responseData.links, 'Should return links array');
+  assert.equal(responseData.links.length, 6, 'Should filter out javascript: and anchor hash links');
+
+  const video = responseData.links.find(l => l.url.includes('video.mp4'));
+  assert.ok(video);
+  assert.equal(video.category, 'video');
+
+  const archive = responseData.links.find(l => l.url.includes('archive.zip'));
+  assert.ok(archive);
+  assert.equal(archive.category, 'archive');
+
+  const doc = responseData.links.find(l => l.url.includes('manual.pdf'));
+  assert.ok(doc);
+  assert.equal(doc.category, 'document');
+});
+
+test('Background Worker: DEFAULT_BLACKLIST allows GitHub Releases and Microsoft file downloads', async () => {
+  const env = createBackgroundMockEnvironment({ blacklist: undefined });
+  const runWorker = new Function('chrome', 'navigator', backgroundScriptCode);
+  runWorker(env.mockChrome, env.mockNavigator);
+
+  const onCreatedHandler = env.listeners.downloadsCreated[0];
+  await onCreatedHandler({
+    id: 2001,
+    url: 'https://github.com/swiftget/swiftget/releases/download/v1.1.0/SwiftGetSetup.exe',
+    filename: 'SwiftGetSetup.exe',
+    mime: 'application/octet-stream',
+    referrer: 'https://github.com/swiftget/swiftget/releases'
+  });
+
+  assert.ok(env.downloadsCancelled.includes(2001), 'GitHub release download should be intercepted');
+  assert.equal(env.nativeMessages.length, 1);
+  assert.equal(env.nativeMessages[0].payload.fileName, 'SwiftGetSetup.exe');
+});
+
+test('Background Worker: CHECK_CONNECTION falls back to Loopback API when Native Host fails', async () => {
+  const env = createBackgroundMockEnvironment();
+  env.mockChrome.runtime.sendNativeMessage = (name, payload, cb) => {
+    env.mockChrome.runtime.lastError = { message: 'Specified native messaging host not found.' };
+    if (cb) cb(null);
+    env.mockChrome.runtime.lastError = null;
+  };
+
+  const mockFetch = async (url) => {
+    if (url.endsWith('/api/v1/health')) {
+      return { ok: true, json: async () => ({ status: 'ok', version: '1.1.0' }) };
+    }
+    if (url.endsWith('/api/v1/auth/token')) {
+      return { ok: true, json: async () => ({ authToken: 'loopback_token_xyz' }) };
+    }
+    return { ok: false };
+  };
+
+  const runWorker = new Function('chrome', 'navigator', 'fetch', backgroundScriptCode);
+  runWorker(env.mockChrome, env.mockNavigator, mockFetch);
+
+  const messageHandler = env.listeners.messages[0];
+  const response = await new Promise((resolve) => {
+    messageHandler({ type: 'CHECK_CONNECTION' }, {}, (res) => resolve(res));
+  });
+
+  assert.equal(response.connected, true);
+  assert.equal(response.version, '1.1.0');
+  assert.equal(env.storage.authToken, 'loopback_token_xyz');
+});
+
+
+
 
 

@@ -7,6 +7,7 @@ using Microsoft.UI.Xaml;
 using Serilog;
 using SwiftGet.App.ViewModels;
 using SwiftGet.App.Views;
+using SwiftGet.Core.IO;
 using SwiftGet.Core.Storage;
 using SwiftGet.Engine.Automation;
 using SwiftGet.Engine.Categories;
@@ -23,11 +24,14 @@ using SwiftGet.Engine.Segmentation;
 using SwiftGet.Engine.Serialization;
 using SwiftGet.Engine.Server;
 using SwiftGet.Core.Localization;
+using SwiftGet.Core.Models;
 using SwiftGet.Engine.Diagnostics;
+using SwiftGet.Engine.Services;
 using SwiftGet.Media.Extractor;
 using SwiftGet.Media.Recorder;
 using SwiftGet.Media.Sidecars;
 using SwiftGet.Engine.Updating;
+using SwiftGet.Engine.Integration;
 
 using SwiftGet.Engine.Torrent;
 using SwiftGet.Engine.Cli;
@@ -42,6 +46,7 @@ public sealed partial class App : Application
     public static IHost AppHost { get; private set; } = null!;
     public static IServiceProvider Services => AppHost.Services;
     public static CliCommand? PendingLaunchCommand { get; set; }
+    public static string AppDataDirectory { get; private set; } = string.Empty;
 
     public App()
     {
@@ -58,6 +63,7 @@ public sealed partial class App : Application
             string localAppData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
             appDir = Path.Combine(localAppData, "SwiftGet");
         }
+        AppDataDirectory = appDir;
         string logDir = Path.Combine(appDir, "logs");
         Directory.CreateDirectory(logDir);
 
@@ -71,7 +77,18 @@ public sealed partial class App : Application
                 formatProvider: System.Globalization.CultureInfo.InvariantCulture,
                 rollingInterval: RollingInterval.Day,
                 retainedFileCountLimit: 14,
-                outputTemplate: "{Timestamp:yyyy-MM-dd HH:mm:ss.fff zzz} [{Level:u3}] [{CorrelationId}] {Message:lj} {Properties:j}{NewLine}{Exception}");
+                outputTemplate: "{Timestamp:yyyy-MM-dd HH:mm:ss.fff zzz} [{Level:u3}] [{CorrelationId}] {Message:lj} {Properties:j}{NewLine}{Exception}")
+            .WriteTo.Logger(lc => lc
+                .Filter.ByIncludingOnly(e =>
+                    (e.Properties.TryGetValue("SourceContext", out var sc) && sc.ToString().Contains("Torrent", StringComparison.OrdinalIgnoreCase)) ||
+                    (e.Properties.TryGetValue("SourceContext", out var msc) && msc.ToString().Contains("MonoTorrent", StringComparison.OrdinalIgnoreCase)) ||
+                    e.Properties.ContainsKey("Category") ||
+                    e.MessageTemplate.Text.StartsWith('['))
+                .WriteTo.File(Path.Combine(logDir, "torrent-.log"),
+                    formatProvider: System.Globalization.CultureInfo.InvariantCulture,
+                    rollingInterval: RollingInterval.Day,
+                    retainedFileCountLimit: 14,
+                    outputTemplate: "{Timestamp:yyyy-MM-dd HH:mm:ss.fff zzz} [{Level:u3}] {Message:lj} {Properties:j}{NewLine}{Exception}"));
 
         if (Directory.Exists(qaLogsDir))
         {
@@ -118,6 +135,7 @@ public sealed partial class App : Application
                 var db = new SqliteDatabase(dbPath);
                 services.AddSingleton<ISwiftGetDatabase>(db);
                 services.AddSingleton(db);
+                services.AddSingleton<IFileNameResolver, FileNameResolver>();
 
                 // Networking & Engine
                 services.AddSingleton<HttpClient>();
@@ -142,6 +160,7 @@ public sealed partial class App : Application
                     sp.GetRequiredService<LoopbackTokenManager>(),
                     sp.GetRequiredService<ISwiftGetDatabase>(),
                     sp.GetRequiredService<ICategoryManager>(),
+                    sp.GetRequiredService<IFileNameResolver>(),
                     port: PendingLaunchCommand?.CustomLoopbackPort ?? LoopbackServer.DefaultPort,
                     logger: sp.GetService<Microsoft.Extensions.Logging.ILogger<LoopbackServer>>()));
 
@@ -158,9 +177,12 @@ public sealed partial class App : Application
                 // M9 Services: Auto-Updater
                 services.AddSingleton<IUpdateService, UpdateService>();
 
+                // Browser Integration Service
+                services.AddSingleton<IBrowserIntegrationService, BrowserIntegrationService>();
+
                 // T1 & T2 BitTorrent Services
-                var torrentEngine = new MonoTorrentEngine();
-                services.AddSingleton<ITorrentEngine>(torrentEngine);
+                services.AddSingleton<ITorrentEngine, MonoTorrentEngine>();
+                services.AddSingleton<IDownloadDetailsSnapshotService, DownloadDetailsSnapshotService>();
                 services.AddSingleton<ISingleInstanceIpc>(sp =>
                     new SingleInstanceIpc(PendingLaunchCommand?.TestMode == true || !string.IsNullOrWhiteSpace(PendingLaunchCommand?.CustomDataDirectory)
                         ? $"SwiftGet_IPC_Test_{Environment.ProcessId}"
@@ -168,6 +190,7 @@ public sealed partial class App : Application
 
                 // ViewModels
                 services.AddSingleton<MainViewModel>();
+                services.AddSingleton<DownloadDetailsViewModel>();
                 services.AddTransient<SchedulerViewModel>();
                 services.AddTransient<OptionsViewModel>();
                 services.AddTransient<BatchDownloadViewModel>();
@@ -207,8 +230,15 @@ public sealed partial class App : Application
 
             Log.Information("Initializing torrent engine...");
             var torrentEngine = Services.GetRequiredService<ITorrentEngine>();
-            torrentEngine.InitializeAsync(new TorrentEngineOptions()).GetAwaiter().GetResult();
-            Log.Information("Torrent engine initialized successfully.");
+            var torrentSettingsPath = Path.Combine(AppDataDirectory, "torrent_settings.json");
+            var torrentOptions = TorrentSettingsStore.Load(torrentSettingsPath);
+            torrentOptions.CacheDirectory = Path.Combine(AppDataDirectory, "torrent_cache");
+            if (torrentOptions.RandomizePortOnStartup)
+            {
+                torrentOptions.ListenPort = Random.Shared.Next(1024, 65535);
+            }
+            torrentEngine.InitializeAsync(torrentOptions).GetAwaiter().GetResult();
+            Log.Information("Torrent engine initialized successfully on port {Port}.", torrentOptions.ListenPort);
         }
         catch (Exception ex)
         {
@@ -231,7 +261,17 @@ public sealed partial class App : Application
                 {
                     if (_currentWindow is MainWindow mw)
                     {
-                        if (req.ShowDialog)
+                        mw.BringToForeground();
+
+                        bool isTorrent = (req.Url != null && req.Url.StartsWith("magnet:?", StringComparison.OrdinalIgnoreCase)) ||
+                                         (req.FileName != null && req.FileName.EndsWith(".torrent", StringComparison.OrdinalIgnoreCase)) ||
+                                         (req.Url != null && req.Url.EndsWith(".torrent", StringComparison.OrdinalIgnoreCase));
+
+                        if (isTorrent)
+                        {
+                            await mw.HandleTorrentRequestAsync(req.Url ?? string.Empty, req.StartImmediately, req.DestinationPath, silent: !req.ShowDialog);
+                        }
+                        else if (req.ShowDialog)
                         {
                             await mw.ShowDownloadFileInfoDialogAsync(req);
                         }
@@ -245,7 +285,14 @@ public sealed partial class App : Application
                                     string.Equals(d.Url, req.Url, StringComparison.OrdinalIgnoreCase));
                                 if (item != null)
                                 {
-                                    _ = mw.StartHttpDownloadAsync(item);
+                                    if (item.JobKind == SwiftGet.Core.Models.JobKind.Media || MainWindow.IsStreamingMediaPlatformUrl(item.Url))
+                                    {
+                                        _ = mw.StartMediaDownloadAsync(item);
+                                    }
+                                    else
+                                    {
+                                        _ = mw.StartHttpDownloadAsync(item);
+                                    }
                                 }
                             }
                         }
@@ -273,6 +320,8 @@ public sealed partial class App : Application
                 {
                     if (_currentWindow is MainWindow mw)
                     {
+                        mw.BringToForeground();
+
                         if (msg.Action == "AddTorrent")
                         {
                             await mw.HandleTorrentRequestAsync(msg.Argument, msg.StartImmediately, msg.SaveDirectory, msg.Silent);
@@ -285,11 +334,10 @@ public sealed partial class App : Application
                             }
                             else
                             {
-                                var fileName = msg.FileName;
-                                if (string.IsNullOrWhiteSpace(fileName) && !string.IsNullOrWhiteSpace(msg.SaveDirectory) && Path.HasExtension(msg.SaveDirectory))
-                                {
-                                    fileName = Path.GetFileName(msg.SaveDirectory);
-                                }
+                                var resolver = AppHost.Services.GetRequiredService<IFileNameResolver>();
+                                var fileName = !string.IsNullOrWhiteSpace(msg.FileName)
+                                    ? msg.FileName
+                                    : resolver.ResolveInitialCandidate(msg.Argument, msg.SaveDirectory);
 
                                 await mw.ShowDownloadFileInfoDialogAsync(new SwiftGet.Engine.Server.InterceptDownloadRequest
                                 {
@@ -297,6 +345,9 @@ public sealed partial class App : Application
                                     Url = msg.Argument,
                                     FileName = fileName,
                                     DestinationPath = msg.SaveDirectory,
+                                    Cookies = msg.Cookies,
+                                    Referrer = msg.Referrer,
+                                    UserAgent = msg.UserAgent,
                                     StartImmediately = msg.StartImmediately,
                                     ShowDialog = true
                                 });
@@ -306,8 +357,6 @@ public sealed partial class App : Application
                         {
                             await mw.ReloadDownloadsFromDatabaseAsync();
                         }
-
-                        _currentWindow.Activate();
                     }
                 });
             };

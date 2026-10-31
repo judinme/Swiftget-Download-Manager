@@ -42,18 +42,18 @@ public sealed partial class CategoryItemViewModel : ObservableObject
         return CategoryKey switch
         {
             "all" => true,
-            "unfinished" => item.Status is DownloadStatus.Downloading or DownloadStatus.Paused or DownloadStatus.Queued or DownloadStatus.FetchingMetadata or DownloadStatus.Checking,
+            "unfinished" => item.Status is DownloadStatus.Downloading or DownloadStatus.Paused or DownloadStatus.Queued or DownloadStatus.FetchingMetadata or DownloadStatus.Checking or DownloadStatus.Failed,
             "finished" => item.Status is DownloadStatus.Completed or DownloadStatus.Seeding,
             "torrents" => item.JobKind == JobKind.Torrent || string.Equals(item.Category, "torrents", StringComparison.OrdinalIgnoreCase) || MatchesExtension(item.FileName, [".torrent"]),
             "grabber" => item.IsGrabberProject,
             "queues" => !string.IsNullOrEmpty(item.QueueName),
-            "queue_main" => string.Equals(item.QueueName, "Main", StringComparison.OrdinalIgnoreCase),
+            "queue_main" => string.Equals(item.QueueName, "Main", StringComparison.OrdinalIgnoreCase) || string.Equals(item.QueueName, "default", StringComparison.OrdinalIgnoreCase),
             "queue_sync" => string.Equals(item.QueueName, "Sync", StringComparison.OrdinalIgnoreCase),
-            "compressed" => string.Equals(item.Category, "compressed", StringComparison.OrdinalIgnoreCase) || MatchesExtension(item.FileName, [".zip", ".rar", ".7z", ".tar", ".gz", ".bz2", ".xz", ".iso", ".tgz"]),
-            "documents" => string.Equals(item.Category, "documents", StringComparison.OrdinalIgnoreCase) || MatchesExtension(item.FileName, [".pdf", ".doc", ".docx", ".xls", ".xlsx", ".ppt", ".pptx", ".txt", ".epub"]),
-            "music" => string.Equals(item.Category, "music", StringComparison.OrdinalIgnoreCase) || MatchesExtension(item.FileName, [".mp3", ".flac", ".wav", ".aac", ".m4a", ".ogg", ".wma", ".opus"]),
-            "programs" => string.Equals(item.Category, "programs", StringComparison.OrdinalIgnoreCase) || MatchesExtension(item.FileName, [".exe", ".msi", ".bat", ".cmd", ".ps1", ".apk", ".appx", ".msix"]),
-            "video" => string.Equals(item.Category, "video", StringComparison.OrdinalIgnoreCase) || MatchesExtension(item.FileName, [".mp4", ".mkv", ".avi", ".mov", ".wmv", ".webm", ".flv", ".ts", ".m4v"]),
+            "compressed" => string.Equals(item.EffectiveCategory, "compressed", StringComparison.OrdinalIgnoreCase) || MatchesExtension(item.FileName, [".zip", ".rar", ".7z", ".tar", ".gz", ".bz2", ".xz", ".zst", ".iso", ".tgz"]),
+            "documents" => string.Equals(item.EffectiveCategory, "documents", StringComparison.OrdinalIgnoreCase) || MatchesExtension(item.FileName, [".pdf", ".doc", ".docx", ".xls", ".xlsx", ".ppt", ".pptx", ".txt", ".epub", ".csv", ".json", ".xml"]),
+            "music" => string.Equals(item.EffectiveCategory, "music", StringComparison.OrdinalIgnoreCase) || MatchesExtension(item.FileName, [".mp3", ".flac", ".wav", ".aac", ".m4a", ".ogg", ".wma", ".opus"]),
+            "programs" => string.Equals(item.EffectiveCategory, "programs", StringComparison.OrdinalIgnoreCase) || MatchesExtension(item.FileName, [".exe", ".msi", ".bat", ".cmd", ".ps1", ".apk", ".appx", ".msix", ".dmg"]),
+            "video" => item.JobKind == JobKind.Media || string.Equals(item.EffectiveCategory, "video", StringComparison.OrdinalIgnoreCase) || MatchesExtension(item.FileName, [".mp4", ".mkv", ".avi", ".mov", ".wmv", ".webm", ".flv", ".ts", ".m4v"]),
             _ => true
         };
     }

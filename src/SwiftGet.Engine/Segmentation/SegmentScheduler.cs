@@ -25,6 +25,8 @@ public class SegmentScheduler : IDisposable
     private readonly SemaphoreSlim _segmentsLock = new(1, 1);
     private long _downloadedBytes;
 
+    public Action<HttpResponseMessage, byte[]>? OnFirstChunkRead { get; set; }
+
     public IReadOnlyList<DownloadSegment> Segments
     {
         get
@@ -180,7 +182,10 @@ public class SegmentScheduler : IDisposable
                 foreach (var seg in _segments.Where(s => !s.IsComplete))
                 {
                     if (runningWorkers.Count >= _maxConnections) break;
-                    var worker = new SegmentWorker(_httpClient, seg, _item, channel.Writer, _limiter, null, _logger);
+                    var worker = new SegmentWorker(_httpClient, seg, _item, channel.Writer, _limiter, null, _logger)
+                    {
+                        OnFirstChunkRead = OnFirstChunkRead
+                    };
                     var task = worker.RunAsync(cts.Token);
                     runningWorkers[task] = worker;
                 }
@@ -214,7 +219,10 @@ public class SegmentScheduler : IDisposable
                     {
                         await _db.SaveSegmentsAsync(_item.Id, segmentsSnapshot, CancellationToken.None).ConfigureAwait(false);
 
-                        var newWorker = new SegmentWorker(_httpClient, newSegment, _item, channel.Writer, _limiter, null, _logger);
+                        var newWorker = new SegmentWorker(_httpClient, newSegment, _item, channel.Writer, _limiter, null, _logger)
+                        {
+                            OnFirstChunkRead = OnFirstChunkRead
+                        };
                         var newTask = newWorker.RunAsync(cts.Token);
                         runningWorkers[newTask] = newWorker;
                     }

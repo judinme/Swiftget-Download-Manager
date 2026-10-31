@@ -91,4 +91,23 @@ public sealed class ClipboardMonitorTests : IAsyncDisposable
         monitor.ProcessClipboardText("https://example.com/archive.zip");
         fired.Should().BeFalse();
     }
+
+    [Fact]
+    public async Task ProcessClipboardText_WithMagnetLink_ShouldFireUrlDetectedEvent()
+    {
+        await _db.InitializeAsync();
+        await _categoryManager.InitializeAsync();
+
+        var monitor = new ClipboardMonitor(_categoryManager);
+        ClipboardUrlDetectedEventArgs? captured = null;
+        monitor.UrlDetected += (s, e) => captured = e;
+
+        var magnet = "magnet:?xt=urn:btih:da39a3ee5e6b4b0d3255bfef95601890afd80709&dn=Ubuntu+24.04+LTS+Desktop&tr=http%3A%2F%2Ftracker.example.com%2Fannounce";
+        monitor.ProcessClipboardText($"Here is the torrent: {magnet}");
+
+        captured.Should().NotBeNull();
+        captured!.Url.Should().Be(magnet);
+        captured.SuggestedFileName.Should().Be("Ubuntu 24.04 LTS Desktop");
+        captured.Category.Name.Should().Be("Torrents");
+    }
 }

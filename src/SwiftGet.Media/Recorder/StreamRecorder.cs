@@ -25,7 +25,17 @@ public sealed partial class StreamRecorder
     [GeneratedRegex(@"\[download\]\s+([\d\.]+)%", RegexOptions.IgnoreCase)]
     private static partial Regex YtDlpPercentRegex();
 
+    [GeneratedRegex(@"at\s+([\d\.]+)\s*([KMGTP]?i?B)/s", RegexOptions.IgnoreCase)]
+    private static partial Regex YtDlpSpeedRegex();
+
+    [GeneratedRegex(@"ETA\s+(\d{1,2}):(\d{2})(?::(\d{2}))?", RegexOptions.IgnoreCase)]
+    private static partial Regex YtDlpEtaRegex();
+
+    [GeneratedRegex(@"of\s+~?([\d\.]+)\s*([KMGTP]?i?B)", RegexOptions.IgnoreCase)]
+    private static partial Regex YtDlpTotalSizeRegex();
+
     public event EventHandler<double>? ProgressChanged;
+    public event EventHandler<StreamProgressEventArgs>? DetailedProgressChanged;
 
     public StreamRecorder(SidecarManager sidecarManager, ILogger<StreamRecorder>? logger = null)
     {
@@ -72,6 +82,21 @@ public sealed partial class StreamRecorder
             args.Add("-f");
             args.Add("bv*+ba/b");
         }
+
+        var ffmpegPath = _sidecarManager.FindFfmpegPath();
+        if (!string.IsNullOrEmpty(ffmpegPath))
+        {
+            args.Add("--ffmpeg-location");
+            args.Add(ffmpegPath);
+        }
+
+        var requestedExt = Path.GetExtension(resolvedDest).TrimStart('.').ToLowerInvariant();
+        if (requestedExt is "mp4" or "mkv" or "webm" or "mov" or "flv")
+        {
+            args.Add("--merge-output-format");
+            args.Add(requestedExt);
+        }
+
         args.Add("--no-part");
         args.Add("--no-warnings");
         args.Add("-o");
@@ -92,7 +117,55 @@ public sealed partial class StreamRecorder
             throw new InvalidOperationException($"Stream recording failed: {SidecarManager.FormatSidecarError(result.StandardError, resolvedDest)}");
         }
 
-        return resolvedDest;
+        return ResolveProducedOutputPath(resolvedDest);
+    }
+
+    public static string ResolveProducedOutputPath(string expectedPath)
+    {
+        if (File.Exists(expectedPath) && new FileInfo(expectedPath).Length > 0)
+        {
+            return expectedPath;
+        }
+
+        string[] candidateExtensions = [".mp4", ".mkv", ".webm", ".m4a", ".mp3", ".opus", ".mov", ".flv"];
+
+        // 1. Check if yt-dlp appended an extension onto the full output filename (e.g. "video.mp4.mkv" or "video.mp4.webm")
+        foreach (var ext in candidateExtensions)
+        {
+            var appendedCandidate = expectedPath + ext;
+            if (File.Exists(appendedCandidate) && new FileInfo(appendedCandidate).Length > 0)
+            {
+                var cleanPath = Path.ChangeExtension(expectedPath, ext);
+                if (!string.Equals(appendedCandidate, cleanPath, StringComparison.OrdinalIgnoreCase))
+                {
+                    try
+                    {
+                        File.Move(appendedCandidate, cleanPath, overwrite: true);
+                        return cleanPath;
+                    }
+                    catch
+                    {
+                        return appendedCandidate;
+                    }
+                }
+
+                return appendedCandidate;
+            }
+        }
+
+        // 2. Check if yt-dlp replaced the extension (e.g. "video.mkv" instead of "video.mp4")
+        foreach (var ext in candidateExtensions)
+        {
+            var replacedCandidate = Path.ChangeExtension(expectedPath, ext);
+            if (!string.Equals(replacedCandidate, expectedPath, StringComparison.OrdinalIgnoreCase) &&
+                File.Exists(replacedCandidate) &&
+                new FileInfo(replacedCandidate).Length > 0)
+            {
+                return replacedCandidate;
+            }
+        }
+
+        return expectedPath;
     }
 
     public async Task<string> MuxStreamsAsync(
@@ -170,11 +243,98 @@ public sealed partial class StreamRecorder
 
     private void ParseYtDlpOutput(string line)
     {
-        var match = YtDlpPercentRegex().Match(line);
-        if (match.Success && double.TryParse(match.Groups[1].Value, NumberStyles.Float, CultureInfo.InvariantCulture, out var percent))
+        if (string.IsNullOrWhiteSpace(line)) return;
+
+        var percentMatch = YtDlpPercentRegex().Match(line);
+        if (!percentMatch.Success || !double.TryParse(percentMatch.Groups[1].Value, NumberStyles.Float, CultureInfo.InvariantCulture, out var percent))
         {
-            ProgressChanged?.Invoke(this, percent);
+            return;
         }
+
+        ProgressChanged?.Invoke(this, percent);
+
+        double speed = 0;
+        var speedMatch = YtDlpSpeedRegex().Match(line);
+        if (speedMatch.Success)
+        {
+            speed = ParseSpeedBytesPerSec(speedMatch.Groups[1].Value, speedMatch.Groups[2].Value);
+        }
+
+        TimeSpan? eta = null;
+        var etaMatch = YtDlpEtaRegex().Match(line);
+        if (etaMatch.Success)
+        {
+            eta = ParseEta(etaMatch);
+        }
+
+        long totalBytes = 0;
+        var totalMatch = YtDlpTotalSizeRegex().Match(line);
+        if (totalMatch.Success)
+        {
+            totalBytes = ParseBytes(totalMatch.Groups[1].Value, totalMatch.Groups[2].Value);
+        }
+
+        long downloadedBytes = totalBytes > 0 ? (long)(totalBytes * (percent / 100.0)) : 0;
+
+        DetailedProgressChanged?.Invoke(this, new StreamProgressEventArgs
+        {
+            ProgressPercentage = percent,
+            SpeedBytesPerSec = speed,
+            RemainingTime = eta,
+            DownloadedBytes = downloadedBytes,
+            TotalBytes = totalBytes
+        });
+    }
+
+    public static double ParseSpeedBytesPerSec(string numberStr, string unitStr)
+    {
+        if (!double.TryParse(numberStr, NumberStyles.Float, CultureInfo.InvariantCulture, out var num))
+            return 0;
+
+        return unitStr.ToLowerInvariant() switch
+        {
+            "kib" or "kb" => num * 1024.0,
+            "mib" or "mb" => num * 1024.0 * 1024.0,
+            "gib" or "gb" => num * 1024.0 * 1024.0 * 1024.0,
+            "tib" or "tb" => num * 1024.0 * 1024.0 * 1024.0 * 1024.0,
+            "b" => num,
+            _ => num * 1024.0 * 1024.0
+        };
+    }
+
+    public static TimeSpan? ParseEta(Match match)
+    {
+        if (!match.Success) return null;
+        if (match.Groups[2].Success && !string.IsNullOrEmpty(match.Groups[2].Value))
+        {
+            if (int.TryParse(match.Groups[1].Value, NumberStyles.Integer, CultureInfo.InvariantCulture, out var first) &&
+                int.TryParse(match.Groups[2].Value, NumberStyles.Integer, CultureInfo.InvariantCulture, out var second))
+            {
+                if (match.Groups.Count > 3 && match.Groups[3].Success && int.TryParse(match.Groups[3].Value, NumberStyles.Integer, CultureInfo.InvariantCulture, out var third))
+                {
+                    return new TimeSpan(first, second, third);
+                }
+                return new TimeSpan(0, first, second);
+            }
+        }
+        return null;
+    }
+
+    public static long ParseBytes(string numberStr, string unitStr)
+    {
+        if (!double.TryParse(numberStr, NumberStyles.Float, CultureInfo.InvariantCulture, out var num))
+            return 0;
+
+        var bytes = unitStr.ToLowerInvariant() switch
+        {
+            "kib" or "kb" => num * 1024.0,
+            "mib" or "mb" => num * 1024.0 * 1024.0,
+            "gib" or "gb" => num * 1024.0 * 1024.0 * 1024.0,
+            "tib" or "tb" => num * 1024.0 * 1024.0 * 1024.0 * 1024.0,
+            "b" => num,
+            _ => num * 1024.0 * 1024.0
+        };
+        return (long)Math.Round(bytes);
     }
 
     private void ParseFfmpegProgress(string line)
@@ -186,4 +346,13 @@ public sealed partial class StreamRecorder
             _logger.LogDebug("FFmpeg encoding/muxing timestamp: {Time}", timeMatch.Value);
         }
     }
+}
+
+public sealed class StreamProgressEventArgs : EventArgs
+{
+    public double ProgressPercentage { get; init; }
+    public double SpeedBytesPerSec { get; init; }
+    public TimeSpan? RemainingTime { get; init; }
+    public long DownloadedBytes { get; init; }
+    public long TotalBytes { get; init; }
 }

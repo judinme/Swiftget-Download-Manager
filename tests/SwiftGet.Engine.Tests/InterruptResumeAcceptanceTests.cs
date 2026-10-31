@@ -50,6 +50,7 @@ public class InterruptResumeAcceptanceTests : IAsyncLifetime
             Url = "http://localhost/test_payload.bin",
             DestinationPath = destinationPath,
             FileName = "downloaded.bin",
+            IsFileNameUserLocked = true,
             ChecksumExpected = _server!.Sha256Hash,
             ChecksumType = ChecksumType.Sha256
         };
@@ -76,12 +77,15 @@ public class InterruptResumeAcceptanceTests : IAsyncLifetime
                 if (item.Status == DownloadStatus.Completed)
                 {
                     // Verify the completed file matches source hash
-                    var completedHash = await DownloadCoordinator.ComputeChecksumAsync(destinationPath, ChecksumType.Sha256, CancellationToken.None);
+                    var targetPath = File.Exists(item.DestinationPath) ? item.DestinationPath : destinationPath;
+                    var completedHash = await DownloadCoordinator.ComputeChecksumAsync(targetPath, ChecksumType.Sha256, CancellationToken.None);
                     completedHash.Should().Be(_server.Sha256Hash);
 
                     // Re-arm for remaining cycles
+                    if (File.Exists(targetPath)) File.Delete(targetPath);
                     if (File.Exists(destinationPath)) File.Delete(destinationPath);
                     item.Id = Guid.NewGuid().ToString("N");
+                    item.DestinationPath = destinationPath;
                     item.DownloadedBytes = 0;
                     item.Segments.Clear();
                     item.Status = DownloadStatus.Queued;

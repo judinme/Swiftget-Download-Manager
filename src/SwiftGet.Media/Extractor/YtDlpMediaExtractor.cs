@@ -53,7 +53,7 @@ public sealed class YtDlpMediaExtractor : IMediaExtractor
                 throw new DrmProtectionDetectedException("DRM", $"DRM protected stream detected: {err}");
             }
 
-            throw new InvalidOperationException($"yt-dlp extraction failed: {SidecarManager.FormatSidecarError(err, ytDlpPath)}");
+            throw new InvalidOperationException($"yt-dlp extraction failed: {SidecarManager.FormatSidecarError(err, null)}");
         }
 
         return ParseMetadataFromJson(result.StandardOutput, mediaUrl);

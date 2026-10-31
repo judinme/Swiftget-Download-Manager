@@ -52,12 +52,16 @@ public class PackagingValidationTests
             Guid.TryParse(guid, out _).Should().BeTrue($"Component {comp.Attribute("Id")?.Value} must have a valid GUID.");
         }
 
-        // Verify native messaging registry keys
+        // Verify native messaging registry keys (both com.swiftget.downloader and com.swiftget.native alias)
         var regKeys = doc.Descendants(ns + "RegistryKey");
         var keyPaths = regKeys.Select(k => k.Attribute("Key")?.Value ?? string.Empty).ToList();
+        keyPaths.Should().Contain(k => k.Contains("Chrome\\NativeMessagingHosts\\com.swiftget.downloader"));
         keyPaths.Should().Contain(k => k.Contains("Chrome\\NativeMessagingHosts\\com.swiftget.native"));
+        keyPaths.Should().Contain(k => k.Contains("Edge\\NativeMessagingHosts\\com.swiftget.downloader"));
         keyPaths.Should().Contain(k => k.Contains("Edge\\NativeMessagingHosts\\com.swiftget.native"));
-        keyPaths.Should().Contain(k => k.Contains("Mozilla\\NativeMessagingHosts\\com.swiftget.native"));
+        keyPaths.Should().Contain(k => k.Contains("BraveSoftware\\Brave-Browser\\NativeMessagingHosts\\com.swiftget.downloader"));
+        keyPaths.Should().Contain(k => k.Contains("Opera Software\\Opera Stable\\NativeMessagingHosts\\com.swiftget.downloader"));
+        keyPaths.Should().Contain(k => k.Contains("Mozilla\\NativeMessagingHosts\\com.swiftget.downloader"));
 
         // Verify file associations
         keyPaths.Should().Contain(k => k.Contains(".torrent"));
@@ -66,9 +70,10 @@ public class PackagingValidationTests
         // Verify browser extension auto-installation registry keys
         keyPaths.Should().Contain(k => k.Contains("Chrome\\Extensions\\albogoggaijdbgdldghgfcjakpdbmmfm"));
         keyPaths.Should().Contain(k => k.Contains("Edge\\Extensions\\albogoggaijdbgdldghgfcjakpdbmmfm"));
-        keyPaths.Should().Contain(k => k.Contains("Mozilla\\Firefox\\Extensions"));
-        keyPaths.Should().Contain(k => k.Contains("Chrome\\ExtensionInstallForcelist"));
-        keyPaths.Should().Contain(k => k.Contains("Edge\\ExtensionInstallForcelist"));
+        keyPaths.Should().Contain(k => k.Contains("BraveSoftware\\Brave-Browser\\Extensions\\albogoggaijdbgdldghgfcjakpdbmmfm"));
+
+        // Verify enterprise policy hijack keys are NOT present (to prevent 'Managed by your organization' warnings)
+        keyPaths.Should().NotContain(k => k.Contains("ExtensionInstallForcelist"));
     }
 
     [Fact]

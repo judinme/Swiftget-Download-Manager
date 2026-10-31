@@ -9,7 +9,11 @@ public record ProbeResult
     public string? ETag { get; init; }
     public string? LastModified { get; init; }
     public string? ContentType { get; init; }
+    public string? ContentDisposition { get; init; }
     public string? SuggestedFileName { get; init; }
+    public byte[]? InitialBytes { get; init; }
+    public bool ExtensionRecovered { get; init; }
+    public bool IsDangerous { get; init; }
     public int StatusCode { get; init; }
     public bool IsSuccess { get; init; }
     public string? ErrorMessage { get; init; }

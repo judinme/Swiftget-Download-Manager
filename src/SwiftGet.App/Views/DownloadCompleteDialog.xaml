@@ -13,6 +13,7 @@
             <RowDefinition Height="Auto" />
             <RowDefinition Height="Auto" />
             <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
         </Grid.RowDefinitions>
 
         <!-- Top Header with Fluent Success Checkmark -->
@@ -41,8 +42,16 @@
             </StackPanel>
         </Grid>
 
+        <!-- Dangerous File Type Warning InfoBar -->
+        <InfoBar Grid.Row="1" x:Name="DangerousWarningBar"
+                 Severity="Warning"
+                 IsOpen="False"
+                 IsClosable="False"
+                 Title="Security Warning"
+                 Message="This file type (.exe, .msi, script) can harm your computer. Make sure you trust the source before opening." />
+
         <!-- Address (URL) -->
-        <StackPanel Grid.Row="1" Spacing="4">
+        <StackPanel Grid.Row="2" Spacing="4">
             <TextBlock Text="Address" FontSize="12" FontWeight="SemiBold"
                        HorizontalAlignment="Left" TextAlignment="Left"
                        Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
@@ -52,7 +61,7 @@
         </StackPanel>
 
         <!-- Saved As (Path) -->
-        <StackPanel Grid.Row="2" Spacing="4">
+        <StackPanel Grid.Row="3" Spacing="4">
             <TextBlock Text="The file saved as" FontSize="12" FontWeight="SemiBold"
                        HorizontalAlignment="Left" TextAlignment="Left"
                        Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
@@ -62,13 +71,13 @@
         </StackPanel>
 
         <!-- Checkbox Row (dedicated full row to prevent label wrapping) -->
-        <Grid Grid.Row="3" Margin="0,4,0,0">
+        <Grid Grid.Row="4" Margin="0,4,0,0">
             <CheckBox Content="Don't show this dialog again" FontSize="12"
                       AutomationProperties.Name="Don't show this dialog again" />
         </Grid>
 
         <!-- Action Buttons Row (right-aligned, MinWidth, no wrapping) -->
-        <Grid Grid.Row="4" Margin="0,6,0,0">
+        <Grid Grid.Row="5" Margin="0,6,0,0">
             <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Spacing="8">
                 <Button Content="Open" Click="Open_Click"
                         Style="{ThemeResource AccentButtonStyle}"

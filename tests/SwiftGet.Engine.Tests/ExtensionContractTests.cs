@@ -7,7 +7,21 @@ namespace SwiftGet.Engine.Tests;
 
 public sealed class ExtensionContractTests
 {
-    private static readonly string RepoRoot = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", "..", ".."));
+    private static readonly string RepoRoot = FindRepoRoot();
+
+    private static string FindRepoRoot()
+    {
+        var dir = AppContext.BaseDirectory;
+        while (!string.IsNullOrEmpty(dir))
+        {
+            if (File.Exists(Path.Combine(dir, "SwiftGet.sln")) || Directory.Exists(Path.Combine(dir, ".git")))
+            {
+                return dir;
+            }
+            dir = Path.GetDirectoryName(dir);
+        }
+        return Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", "..", ".."));
+    }
 
     [Fact]
     public void ExtensionManifest_ShouldBeValidManifestV3()

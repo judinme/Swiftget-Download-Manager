@@ -105,7 +105,7 @@ public static class MagnetUriParser
                         }
                     }
                 }
-                else if (decodedValue.StartsWith("urn:btmh:", StringComparison.OrdinalIgnoreCase))
+                else if (decodedValue.StartsWith("urn:btmh:", StringComparison.OrdinalIgnoreCase) && string.IsNullOrEmpty(infoHash))
                 {
                     // BEP 52 multihash: 1220 followed by 64 hex characters (SHA-256)
                     var hashPart = decodedValue["urn:btmh:".Length..].Trim();

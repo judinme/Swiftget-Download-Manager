@@ -28,11 +28,13 @@
             PlaceholderText="magnet:?xt=urn:btih:... or C:\Path\file.torrent"
             Text="{x:Bind ViewModel.Source, Mode=TwoWay}" />
 
-        <!-- Name & Hash -->
-        <Grid Grid.Row="1" ColumnSpacing="12">
+        <!-- Name, Size, Seeds, Peers -->
+        <Grid Grid.Row="1" ColumnSpacing="10">
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="2*" />
-                <ColumnDefinition Width="*" />
+                <ColumnDefinition Width="0.9*" />
+                <ColumnDefinition Width="0.8*" />
+                <ColumnDefinition Width="0.8*" />
             </Grid.ColumnDefinitions>
             <TextBox
                 Grid.Column="0"
@@ -42,7 +44,17 @@
                 Grid.Column="1"
                 Header="Size:"
                 IsReadOnly="True"
-                Text="{x:Bind ViewModel.FormattedTotalSize, Mode=OneWay}" />
+                Text="{x:Bind ViewModel.SizeSummaryText, Mode=OneWay}" />
+            <TextBox
+                Grid.Column="2"
+                Header="Seeds:"
+                IsReadOnly="True"
+                Text="{x:Bind ViewModel.SeedsText, Mode=OneWay}" />
+            <TextBox
+                Grid.Column="3"
+                Header="Peers:"
+                IsReadOnly="True"
+                Text="{x:Bind ViewModel.PeersText, Mode=OneWay}" />
         </Grid>
 
         <!-- Save To & Browse -->
@@ -122,9 +134,12 @@
         </Grid>
 
         <!-- Options: Sequential mode & Start immediately -->
-        <StackPanel Grid.Row="5" Orientation="Horizontal" Spacing="16">
-            <CheckBox Content="Start download immediately" IsChecked="{x:Bind ViewModel.StartImmediately, Mode=TwoWay}" />
-            <CheckBox Content="Sequential mode (streamable)" IsChecked="{x:Bind ViewModel.SequentialMode, Mode=TwoWay}" />
+        <StackPanel Grid.Row="5" Orientation="Vertical" Spacing="8">
+            <StackPanel Orientation="Horizontal" Spacing="16">
+                <CheckBox Content="Start download immediately" IsChecked="{x:Bind ViewModel.StartImmediately, Mode=TwoWay}" />
+                <CheckBox Content="Sequential mode (streamable)" IsChecked="{x:Bind ViewModel.SequentialMode, Mode=TwoWay}" />
+            </StackPanel>
+            <InfoBar Severity="Warning" IsOpen="{x:Bind ViewModel.HasDiskSpaceWarning, Mode=OneWay}" IsClosable="False" Message="Warning: Selected download size exceeds available free disk space on this drive." />
         </StackPanel>
 
         <!-- Status & Free Space Bar -->

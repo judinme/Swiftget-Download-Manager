@@ -27,6 +27,12 @@ public sealed partial class DownloadCompleteDialog : ContentDialog
         SavePathTextBox.Text = SavePath;
 
         SubtitleTextBlock.Text = $"Downloaded {SwiftGet.Engine.IO.FileNameSanitizer.FormatFileSizeWithExactBytes(fileSizeBytes)}";
+
+        var ext = Path.GetExtension(SavePath);
+        if (SwiftGet.Core.IO.FileNameResolver.IsDangerous(ext))
+        {
+            DangerousWarningBar.IsOpen = true;
+        }
     }
 
     private void Open_Click(object sender, RoutedEventArgs e)

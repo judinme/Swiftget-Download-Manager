@@ -24,6 +24,8 @@ public sealed class MockTorrentEngine : ITorrentEngine
     public List<(string JobId, int FileIndex, TorrentFilePriority Priority)> FilePriorityChanges { get; } = [];
     public List<(string JobId, long Down, long Up)> TorrentRateLimits { get; } = [];
     public (long Down, long Up)? LastGlobalRateLimit { get; private set; }
+    public TorrentEngineOptions? LastUpdatedOptions { get; private set; }
+    public List<(string JobId, string IpAddress)> BannedPeers { get; } = [];
 
 #pragma warning disable CS0067
     public event EventHandler<TorrentStateChangedEventArgs>? StateChanged;
@@ -98,10 +100,32 @@ public sealed class MockTorrentEngine : ITorrentEngine
         return Task.CompletedTask;
     }
 
+    public Task UpdateOptionsAsync(TorrentEngineOptions options, CancellationToken ct = default)
+    {
+        Options = options;
+        LastUpdatedOptions = options;
+        return Task.CompletedTask;
+    }
+
+    public Task BanPeerAsync(string jobId, string ipAddress, CancellationToken ct = default)
+    {
+        BannedPeers.Add((jobId, ipAddress));
+        return Task.CompletedTask;
+    }
+
     public Task AddPeerAsync(string jobId, Uri peerUri, CancellationToken ct = default)
     {
         return Task.CompletedTask;
     }
+
+    public Task MoveStorageAsync(string jobId, string newDirectory, CancellationToken ct = default) => Task.CompletedTask;
+    public Task SetSequentialDownloadAsync(string jobId, bool enable, CancellationToken ct = default) => Task.CompletedTask;
+    public Task ForceAnnounceAsync(string jobId, CancellationToken ct = default) => Task.CompletedTask;
+    public Task AddTrackerAsync(string jobId, Uri trackerUri, CancellationToken ct = default) => Task.CompletedTask;
+    public Task RemoveTrackerAsync(string jobId, Uri trackerUri, CancellationToken ct = default) => Task.CompletedTask;
+    public Task<bool> WaitForMetadataAsync(string jobId, TimeSpan timeout, CancellationToken ct = default) => Task.FromResult(true);
+    public Task<byte[]> CreateTorrentAsync(string path, string[]? announceUrls = null, string? comment = null, string? createdBy = null, int pieceSize = 0, bool isPrivate = false, CancellationToken ct = default) => Task.FromResult(Array.Empty<byte>());
+    public bool HasJob(string jobId) => JobStats.ContainsKey(jobId);
 
     public TorrentJobStats? GetJobStats(string jobId)
     {
@@ -128,7 +152,61 @@ public sealed class MockTorrentEngine : ITorrentEngine
         return PieceBitFields.TryGetValue(jobId, out var bytes) ? bytes : ReadOnlyMemory<byte>.Empty;
     }
 
+    public Task<IReadOnlyList<TorrentPeerInfo>> GetPeersAsync(string jobId, CancellationToken ct = default)
+    {
+        return Task.FromResult<IReadOnlyList<TorrentPeerInfo>>(GetPeers(jobId));
+    }
+
+    public PieceState[] GetPieceStates(string jobId)
+    {
+        if (PieceBitFields.TryGetValue(jobId, out var bytes) && bytes != null && bytes.Length > 0)
+        {
+            var states = new PieceState[bytes.Length * 8];
+            for (int i = 0; i < states.Length; i++)
+            {
+                int byteIdx = i / 8;
+                int bitIdx = 7 - (i % 8);
+                bool has = (bytes[byteIdx] & (1 << bitIdx)) != 0;
+                states[i] = has ? PieceState.Downloaded : PieceState.Missing;
+            }
+            return states;
+        }
+        return Array.Empty<PieceState>();
+    }
+
     public byte[]? GetFastResumeData(string jobId) => null;
+
+    public List<TorrentLogEntry> Logs { get; } = new();
+
+    public IReadOnlyList<TorrentLogEntry> GetRecentLogs(string? jobId = null, int maxCount = 200)
+    {
+        IEnumerable<TorrentLogEntry> q = Logs;
+        if (!string.IsNullOrWhiteSpace(jobId))
+        {
+            q = q.Where(e => string.IsNullOrWhiteSpace(e.JobId) || string.Equals(e.JobId, jobId, StringComparison.OrdinalIgnoreCase));
+        }
+        return q.TakeLast(maxCount).ToList();
+    }
+
+    public Task ExportLogsAsync(string destinationFilePath, string? jobId = null, CancellationToken ct = default)
+    {
+        return Task.CompletedTask;
+    }
+
+    public event EventHandler<TorrentLogEventArgs>? LogReceived;
+
+    public void AddLog(string level, string category, string message, string? jobId = null)
+    {
+        var entry = new TorrentLogEntry
+        {
+            Level = level,
+            Category = category,
+            Message = message,
+            JobId = jobId
+        };
+        Logs.Add(entry);
+        LogReceived?.Invoke(this, new TorrentLogEventArgs(entry));
+    }
 
     public ValueTask DisposeAsync() => ValueTask.CompletedTask;
 }

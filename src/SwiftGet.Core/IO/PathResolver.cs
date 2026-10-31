@@ -142,15 +142,20 @@ public static class PathResolver
     /// </summary>
     public static bool IsReparsePoint(string path)
     {
-        if (string.IsNullOrWhiteSpace(path) || (!File.Exists(path) && !Directory.Exists(path)))
+        if (string.IsNullOrWhiteSpace(path))
         {
             return false;
         }
 
         try
         {
-            var attr = File.GetAttributes(path);
+            var trimmed = Path.TrimEndingDirectorySeparator(path.Trim());
+            var attr = File.GetAttributes(trimmed);
             return (attr & FileAttributes.ReparsePoint) != 0;
+        }
+        catch (IOException ioEx) when ((ioEx.HResult & 0xFFFF) == 448) // ERROR_UNTRUSTED_MOUNT_POINT
+        {
+            return true;
         }
         catch
         {
@@ -168,7 +173,16 @@ public static class PathResolver
             return false;
         }
 
-        var current = Path.GetFullPath(path);
+        string current;
+        try
+        {
+            current = Path.TrimEndingDirectorySeparator(Path.GetFullPath(path.Trim()));
+        }
+        catch
+        {
+            return false;
+        }
+
         while (!string.IsNullOrEmpty(current))
         {
             if (IsReparsePoint(current))

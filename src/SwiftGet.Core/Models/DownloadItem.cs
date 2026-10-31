@@ -7,6 +7,7 @@ public class DownloadItem
     public string FinalUrl { get; set; } = string.Empty;
     public string DestinationPath { get; set; } = string.Empty;
     public string FileName { get; set; } = string.Empty;
+    public bool IsFileNameUserLocked { get; set; }
     public long TotalBytes { get; set; } = -1;
     public long DownloadedBytes { get; set; }
     public DownloadStatus Status { get; set; } = DownloadStatus.Queued;

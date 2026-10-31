@@ -6,9 +6,11 @@ using System.Threading;
 using System.Threading.Tasks;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
+using System.Diagnostics;
 using SwiftGet.Core.Models;
 using SwiftGet.Core.Storage;
 using SwiftGet.Engine.Categories;
+using SwiftGet.Engine.Integration;
 using SwiftGet.Engine.Notifications;
 using SwiftGet.Engine.Torrent;
 using SwiftGet.Engine.Updating;
@@ -23,6 +25,7 @@ public sealed partial class OptionsViewModel : ObservableObject
     private readonly ITorrentEngine? _torrentEngine;
     private readonly ITorrentAssociationManager? _associationManager;
     private readonly IUpdateService? _updateService;
+    private readonly IBrowserIntegrationService? _browserService;
 
     // --- TAB 1: Categories ---
     [ObservableProperty]
@@ -81,6 +84,15 @@ public sealed partial class OptionsViewModel : ObservableObject
     private double _torrentListenPort = 52138;
 
     [ObservableProperty]
+    private bool _torrentRandomizePortOnStartup;
+
+    [ObservableProperty]
+    private bool _isTestingPort;
+
+    [ObservableProperty]
+    private string _portTestStatus = "Click 'Test Port' to verify incoming connectivity.";
+
+    [ObservableProperty]
     private bool _torrentEnableUpnp = true;
 
     [ObservableProperty]
@@ -93,10 +105,16 @@ public sealed partial class OptionsViewModel : ObservableObject
     private bool _torrentEnableLsd = true;
 
     [ObservableProperty]
+    private int _torrentEncryptionModeIndex; // 0: Prefer, 1: Require, 2: Plaintext
+
+    [ObservableProperty]
     private bool _torrentPreferEncryption = true;
 
     [ObservableProperty]
     private double _torrentMaxConnections = 150;
+
+    [ObservableProperty]
+    private double _torrentMaxConnectionsPerTorrent = 50;
 
     [ObservableProperty]
     private double _torrentMaxDownloadRateKbps;
@@ -105,10 +123,46 @@ public sealed partial class OptionsViewModel : ObservableObject
     private double _torrentMaxUploadRateKbps;
 
     [ObservableProperty]
+    private double _torrentAltDownloadRateKbps = 512;
+
+    [ObservableProperty]
+    private double _torrentAltUploadRateKbps = 128;
+
+    [ObservableProperty]
+    private bool _torrentEnableSchedule;
+
+    [ObservableProperty]
+    private double _torrentScheduleStartHour = 8;
+
+    [ObservableProperty]
+    private double _torrentScheduleEndHour = 20;
+
+    [ObservableProperty]
+    private string _torrentDefaultSaveDirectory = string.Empty;
+
+    [ObservableProperty]
+    private bool _torrentUsePartialFiles = true;
+
+    [ObservableProperty]
     private double _torrentDefaultSeedRatio = 1.0;
 
     [ObservableProperty]
     private double _torrentDefaultSeedTimeMins;
+
+    [ObservableProperty]
+    private bool _torrentStopSeedingWhenLimitReached = true;
+
+    [ObservableProperty]
+    private string _torrentDefaultTrackersText = string.Empty;
+
+    [ObservableProperty]
+    private bool _torrentEnableIpFilter;
+
+    [ObservableProperty]
+    private string _torrentIpFilterPath = string.Empty;
+
+    [ObservableProperty]
+    private string _ipFilterStatus = "Blocklist disabled";
 
     [ObservableProperty]
     private bool _torrentIsMagnetAssociated;
@@ -132,13 +186,24 @@ public sealed partial class OptionsViewModel : ObservableObject
     [ObservableProperty]
     private string _updateFeedUrl = "https://raw.githubusercontent.com/swiftget/swiftget/main/releases/updates.json";
 
+    // --- TAB 7: Browser Integration ---
+    [ObservableProperty]
+    private ObservableCollection<BrowserInfo> _installedBrowsers = [];
+
+    [ObservableProperty]
+    private string _unpackedExtensionDirectory = string.Empty;
+
+    [ObservableProperty]
+    private string _browserStatusMessage = "Ready";
+
     public OptionsViewModel(
         ISwiftGetDatabase db,
         ICategoryManager categoryManager,
         IAudioNotificationService audioService,
         ITorrentEngine? torrentEngine = null,
         ITorrentAssociationManager? associationManager = null,
-        IUpdateService? updateService = null)
+        IUpdateService? updateService = null,
+        IBrowserIntegrationService? browserService = null)
     {
         _db = db ?? throw new ArgumentNullException(nameof(db));
         _categoryManager = categoryManager ?? throw new ArgumentNullException(nameof(categoryManager));
@@ -146,6 +211,7 @@ public sealed partial class OptionsViewModel : ObservableObject
         _torrentEngine = torrentEngine;
         _associationManager = associationManager;
         _updateService = updateService;
+        _browserService = browserService;
     }
 
     [RelayCommand]
@@ -208,17 +274,41 @@ public sealed partial class OptionsViewModel : ObservableObject
         {
             var opts = _torrentEngine.Options;
             TorrentListenPort = opts.ListenPort > 0 ? opts.ListenPort : 52138;
+            TorrentRandomizePortOnStartup = opts.RandomizePortOnStartup;
             TorrentEnableUpnp = opts.EnableUpnp;
             TorrentEnableDht = opts.EnableDht;
             TorrentEnablePex = opts.EnablePex;
             TorrentEnableLsd = opts.EnableLocalPeerDiscovery;
+            TorrentEncryptionModeIndex = (int)opts.EncryptionMode;
             TorrentPreferEncryption = opts.PreferEncryption;
             TorrentMaxConnections = opts.MaxConnections > 0 ? opts.MaxConnections : 150;
+            TorrentMaxConnectionsPerTorrent = opts.MaxConnectionsPerTorrent > 0 ? opts.MaxConnectionsPerTorrent : 50;
             TorrentMaxDownloadRateKbps = opts.GlobalMaxDownloadRateBytesPerSec > 0 ? opts.GlobalMaxDownloadRateBytesPerSec / 1024.0 : 0;
             TorrentMaxUploadRateKbps = opts.GlobalMaxUploadRateBytesPerSec > 0 ? opts.GlobalMaxUploadRateBytesPerSec / 1024.0 : 0;
+            TorrentAltDownloadRateKbps = opts.AltDownloadRateBytesPerSec > 0 ? opts.AltDownloadRateBytesPerSec / 1024.0 : 512;
+            TorrentAltUploadRateKbps = opts.AltUploadRateBytesPerSec > 0 ? opts.AltUploadRateBytesPerSec / 1024.0 : 128;
+            TorrentEnableSchedule = opts.EnableRateLimitSchedule;
+            TorrentScheduleStartHour = opts.ScheduleStartHour;
+            TorrentScheduleEndHour = opts.ScheduleEndHour;
+            TorrentDefaultSaveDirectory = !string.IsNullOrWhiteSpace(opts.SaveDirectory)
+                ? opts.SaveDirectory
+                : Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "Downloads");
+            TorrentUsePartialFiles = opts.UsePartialFiles;
+            TorrentDefaultSeedRatio = opts.DefaultSeedRatio;
+            TorrentDefaultSeedTimeMins = opts.DefaultSeedTimeMins;
+            TorrentStopSeedingWhenLimitReached = opts.StopSeedingWhenLimitReached;
+            TorrentDefaultTrackersText = !string.IsNullOrWhiteSpace(opts.DefaultTrackersText)
+                ? opts.DefaultTrackersText
+                : string.Join(Environment.NewLine, MonoTorrentEngine.DefaultPublicTrackers);
+            TorrentEnableIpFilter = opts.EnableIpFilter;
+            TorrentIpFilterPath = opts.IpFilterPath ?? string.Empty;
+            IpFilterStatus = opts.EnableIpFilter && File.Exists(opts.IpFilterPath)
+                ? $"Blocklist configured: {Path.GetFileName(opts.IpFilterPath)}"
+                : "Blocklist disabled";
         }
 
         RefreshAssociationStatus();
+        RefreshBrowsers();
     }
 
     public void RefreshAssociationStatus()
@@ -324,6 +414,80 @@ public sealed partial class OptionsViewModel : ObservableObject
     }
 
     [RelayCommand]
+    public async Task TestPortAsync()
+    {
+        IsTestingPort = true;
+        PortTestStatus = "Testing incoming port...";
+        int port = (int)Math.Clamp(TorrentListenPort, 1024, 65535);
+
+        try
+        {
+            using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(2));
+            using var client = new System.Net.Sockets.TcpClient();
+            await client.ConnectAsync(System.Net.IPAddress.Loopback, port, cts.Token).ConfigureAwait(false);
+            PortTestStatus = $"Port {port} is OPEN and accepting incoming BitTorrent connections.";
+        }
+        catch
+        {
+            try
+            {
+                var listener = new System.Net.Sockets.TcpListener(System.Net.IPAddress.Loopback, port);
+                listener.Start();
+                listener.Stop();
+                PortTestStatus = $"Port {port} is AVAILABLE for listening.";
+            }
+            catch (Exception ex)
+            {
+                PortTestStatus = $"Port {port} test error: {ex.Message}";
+            }
+        }
+        finally
+        {
+            IsTestingPort = false;
+        }
+    }
+
+    [RelayCommand]
+    public void ResetTrackers()
+    {
+        TorrentDefaultTrackersText = string.Join(Environment.NewLine, MonoTorrentEngine.DefaultPublicTrackers);
+        StatusMessage = "Reset BitTorrent trackers to recommended defaults";
+    }
+
+    [RelayCommand]
+    public void ResetTorrentDefaults()
+    {
+        TorrentListenPort = 52138;
+        TorrentRandomizePortOnStartup = false;
+        TorrentEnableUpnp = true;
+        TorrentEnableDht = true;
+        TorrentEnablePex = true;
+        TorrentEnableLsd = true;
+        TorrentEncryptionModeIndex = 0; // Prefer
+        TorrentPreferEncryption = true;
+        TorrentMaxConnections = 150;
+        TorrentMaxConnectionsPerTorrent = 50;
+        TorrentMaxDownloadRateKbps = 0;
+        TorrentMaxUploadRateKbps = 0;
+        TorrentAltDownloadRateKbps = 512;
+        TorrentAltUploadRateKbps = 128;
+        TorrentEnableSchedule = false;
+        TorrentScheduleStartHour = 8;
+        TorrentScheduleEndHour = 20;
+        TorrentDefaultSaveDirectory = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "Downloads");
+        TorrentUsePartialFiles = true;
+        TorrentDefaultSeedRatio = 1.0;
+        TorrentDefaultSeedTimeMins = 0;
+        TorrentStopSeedingWhenLimitReached = true;
+        TorrentDefaultTrackersText = string.Join(Environment.NewLine, MonoTorrentEngine.DefaultPublicTrackers);
+        TorrentEnableIpFilter = false;
+        TorrentIpFilterPath = string.Empty;
+        IpFilterStatus = "Blocklist disabled";
+        PortTestStatus = "Defaults restored. Click 'Test Port' to test.";
+        StatusMessage = "BitTorrent settings reset to recommended defaults";
+    }
+
+    [RelayCommand]
     public async Task SaveAllOptionsAsync()
     {
         if (SelectedCategory != null)
@@ -335,21 +499,89 @@ public sealed partial class OptionsViewModel : ObservableObject
         {
             var opts = _torrentEngine.Options;
             opts.ListenPort = (int)Math.Clamp(TorrentListenPort, 1024, 65535);
+            opts.RandomizePortOnStartup = TorrentRandomizePortOnStartup;
             opts.EnableUpnp = TorrentEnableUpnp;
             opts.EnableDht = TorrentEnableDht;
             opts.EnablePex = TorrentEnablePex;
             opts.EnableLocalPeerDiscovery = TorrentEnableLsd;
-            opts.PreferEncryption = TorrentPreferEncryption;
+            opts.EncryptionMode = (TorrentEncryptionMode)Math.Clamp(TorrentEncryptionModeIndex, 0, 2);
             opts.MaxConnections = (int)Math.Max(10, TorrentMaxConnections);
+            opts.MaxConnectionsPerTorrent = (int)Math.Max(5, TorrentMaxConnectionsPerTorrent);
 
             long downBytes = (long)Math.Max(0, TorrentMaxDownloadRateKbps * 1024.0);
             long upBytes = (long)Math.Max(0, TorrentMaxUploadRateKbps * 1024.0);
             opts.GlobalMaxDownloadRateBytesPerSec = downBytes;
             opts.GlobalMaxUploadRateBytesPerSec = upBytes;
 
+            opts.AltDownloadRateBytesPerSec = (long)Math.Max(0, TorrentAltDownloadRateKbps * 1024.0);
+            opts.AltUploadRateBytesPerSec = (long)Math.Max(0, TorrentAltUploadRateKbps * 1024.0);
+            opts.EnableRateLimitSchedule = TorrentEnableSchedule;
+            opts.ScheduleStartHour = (int)TorrentScheduleStartHour;
+            opts.ScheduleEndHour = (int)TorrentScheduleEndHour;
+
+            opts.SaveDirectory = TorrentDefaultSaveDirectory;
+            opts.UsePartialFiles = TorrentUsePartialFiles;
+            opts.DefaultSeedRatio = Math.Max(0, TorrentDefaultSeedRatio);
+            opts.DefaultSeedTimeMins = (int)Math.Max(0, TorrentDefaultSeedTimeMins);
+            opts.StopSeedingWhenLimitReached = TorrentStopSeedingWhenLimitReached;
+            opts.DefaultTrackersText = TorrentDefaultTrackersText;
+            opts.EnableIpFilter = TorrentEnableIpFilter;
+            opts.IpFilterPath = TorrentIpFilterPath;
+
+            TorrentSettingsStore.Save(opts);
+            await _torrentEngine.UpdateOptionsAsync(opts).ConfigureAwait(false);
             await _torrentEngine.SetGlobalRateLimitsAsync(downBytes, upBytes).ConfigureAwait(false);
         }
 
         StatusMessage = "Options saved successfully";
+    }
+
+    public void RefreshBrowsers()
+    {
+        if (_browserService != null)
+        {
+            var browsers = _browserService.DetectInstalledBrowsers();
+            InstalledBrowsers.Clear();
+            foreach (var b in browsers)
+            {
+                InstalledBrowsers.Add(b);
+            }
+            UnpackedExtensionDirectory = _browserService.GetUnpackedExtensionDirectory();
+        }
+    }
+
+    [RelayCommand]
+    public void LaunchBrowserExtension(BrowserInfo? browser)
+    {
+        if (browser == null || _browserService == null) return;
+        _browserService.LaunchBrowserExtensionPage(browser.Type);
+        BrowserStatusMessage = $"Opened extension management in {browser.Name}";
+        StatusMessage = BrowserStatusMessage;
+    }
+
+    [RelayCommand]
+    public void OpenBrowserStore(BrowserInfo? browser)
+    {
+        if (browser == null || _browserService == null) return;
+        _browserService.OpenStorePage(browser.Type);
+        BrowserStatusMessage = $"Opened extension store page for {browser.Name}";
+        StatusMessage = BrowserStatusMessage;
+    }
+
+    [RelayCommand]
+    public void OpenUnpackedFolder()
+    {
+        string dir = _browserService?.GetUnpackedExtensionDirectory() ?? string.Empty;
+        if (!string.IsNullOrEmpty(dir) && Directory.Exists(dir))
+        {
+            Process.Start(new ProcessStartInfo
+            {
+                FileName = "explorer.exe",
+                Arguments = $"\"{dir}\"",
+                UseShellExecute = true
+            });
+            BrowserStatusMessage = "Opened extension directory";
+            StatusMessage = BrowserStatusMessage;
+        }
     }
 }

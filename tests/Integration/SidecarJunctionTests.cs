@@ -98,6 +98,37 @@ public sealed class SidecarJunctionTests : IDisposable
         secondFormatted.Should().NotContain("C:\\Users\\SPARK\\Downloads");
     }
 
+    [Fact]
+    public void FormatUntrustedMountPointError_ExtractsPathFromRawError_AndNeverBlamesSidecarBinary()
+    {
+        var rawError = "ERROR: [WinError 448] The system cannot access a critical file or directory because it has been redirected to an untrusted mount point: 'C:\\Users\\SPARK\\AppData\\Local\\Programs\\Cua\\cua-driver\\bin'";
+        var formatted = SidecarManager.FormatSidecarError(rawError, @"C:\Program Files\SwiftGet\sidecars\yt-dlp.exe");
+
+        formatted.Should().Contain(@"C:\Users\SPARK\AppData\Local\Programs\Cua\cua-driver\bin");
+        formatted.Should().NotContain("yt-dlp.exe");
+    }
+
+    [Fact]
+    public void BuildSafePathEnvironment_StripsJunctionAndWinGetLinkDirectories()
+    {
+        var originalPath = Environment.GetEnvironmentVariable("PATH");
+        try
+        {
+            Environment.SetEnvironmentVariable("PATH", $"{_junctionDir};{_realDir};C:\\Users\\SPARK\\AppData\\Local\\Microsoft\\WinGet\\Links;C:\\Users\\SPARK\\AppData\\Local\\Microsoft\\WindowsApps");
+            var safePath = SidecarManager.BuildSafePathEnvironment(_realDir);
+
+            var entries = safePath.Split(Path.PathSeparator, StringSplitOptions.RemoveEmptyEntries);
+            entries.Should().NotContain(e => e.Equals(_junctionDir, StringComparison.OrdinalIgnoreCase));
+            entries.Should().NotContain(e => e.Contains("WinGet\\Links", StringComparison.OrdinalIgnoreCase));
+            entries.Should().NotContain(e => e.Contains("WindowsApps", StringComparison.OrdinalIgnoreCase));
+            entries.Should().Contain(e => e.TrimEnd('\\', '/').Equals(_realDir.TrimEnd('\\', '/'), StringComparison.OrdinalIgnoreCase));
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable("PATH", originalPath);
+        }
+    }
+
     public void Dispose()
     {
         try

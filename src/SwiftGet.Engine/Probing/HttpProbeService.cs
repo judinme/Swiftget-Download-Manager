@@ -1,18 +1,27 @@
+using System;
+using System.Collections.Generic;
+using System.IO;
 using System.Net;
+using System.Net.Http;
 using System.Net.Http.Headers;
-using System.Text.RegularExpressions;
+using System.Threading;
+using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
-using SwiftGet.Engine.IO;
+using SwiftGet.Core.IO;
 
 namespace SwiftGet.Engine.Probing;
 
 public class HttpProbeService
 {
     private readonly HttpClient _httpClient;
+    private readonly IFileNameResolver _fileNameResolver;
     private readonly ILogger<HttpProbeService> _logger;
 
-    public HttpProbeService(HttpClient? httpClient = null, ILogger<HttpProbeService>? logger = null)
+    public HttpProbeService(
+        HttpClient? httpClient = null,
+        IFileNameResolver? fileNameResolver = null,
+        ILogger<HttpProbeService>? logger = null)
     {
         _httpClient = httpClient ?? new HttpClient(new SocketsHttpHandler
         {
@@ -20,6 +29,7 @@ public class HttpProbeService
             AutomaticDecompression = DecompressionMethods.All,
             ConnectTimeout = TimeSpan.FromSeconds(15)
         });
+        _fileNameResolver = fileNameResolver ?? new FileNameResolver();
         _logger = logger ?? NullLogger<HttpProbeService>.Instance;
     }
 
@@ -39,11 +49,16 @@ public class HttpProbeService
 
             if (headResponse.IsSuccessStatusCode)
             {
-                var result = ParseResponse(url, headResponse, isRangeResponse: false);
-                // If Content-Length or Accept-Ranges was ambiguous, verify with Range 0-0
-                if (result.TotalBytes <= 0 || !result.SupportsRanges)
+                var result = ParseResponse(url, headResponse, isRangeResponse: false, initialBytes: null);
+
+                // If Content-Length or Accept-Ranges was ambiguous, OR if Content-Disposition was missing
+                // and the resolved filename has no extension or generic extension, verify with Range probe
+                var ext = _fileNameResolver.GetCompoundExtension(result.SuggestedFileName ?? string.Empty);
+                var isExtensionlessOrGeneric = string.IsNullOrEmpty(ext) || _fileNameResolver.IsGenericOrScriptExtension(ext);
+
+                if (result.TotalBytes <= 0 || !result.SupportsRanges || (string.IsNullOrWhiteSpace(result.ContentDisposition) && isExtensionlessOrGeneric))
                 {
-                    var rangeProbeResult = await ProbeWithRange0Async(url, customHeaders, cookies, userAgent, referrer, ct).ConfigureAwait(false);
+                    var rangeProbeResult = await ProbeWithRangeAsync(url, customHeaders, cookies, userAgent, referrer, ct).ConfigureAwait(false);
                     if (rangeProbeResult.IsSuccess)
                     {
                         return rangeProbeResult;
@@ -53,15 +68,15 @@ public class HttpProbeService
             }
 
             // If HEAD was rejected (e.g. 405 Method Not Allowed, 501 Not Implemented, 403 Forbidden)
-            _logger.LogInformation("HEAD request failed with status {StatusCode}. Falling back to GET Range: bytes=0-0 probe.", headResponse.StatusCode);
-            return await ProbeWithRange0Async(url, customHeaders, cookies, userAgent, referrer, ct).ConfigureAwait(false);
+            _logger.LogInformation("HEAD request failed with status {StatusCode}. Falling back to GET Range probe.", headResponse.StatusCode);
+            return await ProbeWithRangeAsync(url, customHeaders, cookies, userAgent, referrer, ct).ConfigureAwait(false);
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
             _logger.LogWarning(ex, "HEAD probe failed with exception for {Url}. Falling back to Range probe.", url);
             try
             {
-                return await ProbeWithRange0Async(url, customHeaders, cookies, userAgent, referrer, ct).ConfigureAwait(false);
+                return await ProbeWithRangeAsync(url, customHeaders, cookies, userAgent, referrer, ct).ConfigureAwait(false);
             }
             catch (Exception fallbackEx) when (fallbackEx is not OperationCanceledException)
             {
@@ -77,7 +92,7 @@ public class HttpProbeService
         }
     }
 
-    private async Task<ProbeResult> ProbeWithRange0Async(
+    private async Task<ProbeResult> ProbeWithRangeAsync(
         string url,
         IDictionary<string, string>? customHeaders,
         string? cookies,
@@ -85,25 +100,62 @@ public class HttpProbeService
         string? referrer,
         CancellationToken ct)
     {
-        using var rangeRequest = CreateRequest(HttpMethod.Get, url, customHeaders, cookies, userAgent, referrer);
-        rangeRequest.Headers.Range = new RangeHeaderValue(0, 0);
+        // Try Range: bytes=0-511 first to capture magic bytes
+        try
+        {
+            using var rangeRequest = CreateRequest(HttpMethod.Get, url, customHeaders, cookies, userAgent, referrer);
+            rangeRequest.Headers.Range = new RangeHeaderValue(0, 511);
 
-        using var response = await _httpClient.SendAsync(rangeRequest, HttpCompletionOption.ResponseHeadersRead, ct).ConfigureAwait(false);
+            using var response = await _httpClient.SendAsync(rangeRequest, HttpCompletionOption.ResponseHeadersRead, ct).ConfigureAwait(false);
 
-        if (!response.IsSuccessStatusCode && response.StatusCode != HttpStatusCode.PartialContent)
+            if (response.IsSuccessStatusCode || response.StatusCode == HttpStatusCode.PartialContent)
+            {
+                var isRangeResponse = response.StatusCode == HttpStatusCode.PartialContent;
+                byte[]? initialBytes = null;
+                try
+                {
+                    await using var stream = await response.Content.ReadAsStreamAsync(ct).ConfigureAwait(false);
+                    using var ms = new MemoryStream();
+                    var buffer = new byte[512];
+                    var read = await stream.ReadAsync(buffer.AsMemory(0, 512), ct).ConfigureAwait(false);
+                    if (read > 0)
+                    {
+                        initialBytes = new byte[read];
+                        Array.Copy(buffer, initialBytes, read);
+                    }
+                }
+                catch
+                {
+                    // Ignore body read failure on probe
+                }
+
+                return ParseResponse(url, response, isRangeResponse, initialBytes);
+            }
+        }
+        catch
+        {
+            // Fall back to Range 0-0 below
+        }
+
+        // Fallback: Range 0-0
+        using var singleByteRequest = CreateRequest(HttpMethod.Get, url, customHeaders, cookies, userAgent, referrer);
+        singleByteRequest.Headers.Range = new RangeHeaderValue(0, 0);
+
+        using var singleByteResponse = await _httpClient.SendAsync(singleByteRequest, HttpCompletionOption.ResponseHeadersRead, ct).ConfigureAwait(false);
+
+        if (!singleByteResponse.IsSuccessStatusCode && singleByteResponse.StatusCode != HttpStatusCode.PartialContent)
         {
             return new ProbeResult
             {
                 OriginalUrl = url,
-                FinalUrl = response.RequestMessage?.RequestUri?.ToString() ?? url,
-                StatusCode = (int)response.StatusCode,
+                FinalUrl = singleByteResponse.RequestMessage?.RequestUri?.ToString() ?? url,
+                StatusCode = (int)singleByteResponse.StatusCode,
                 IsSuccess = false,
-                ErrorMessage = $"Server returned HTTP {(int)response.StatusCode} {response.ReasonPhrase}"
+                ErrorMessage = $"Server returned HTTP {(int)singleByteResponse.StatusCode} {singleByteResponse.ReasonPhrase}"
             };
         }
 
-        var isRangeResponse = response.StatusCode == HttpStatusCode.PartialContent;
-        return ParseResponse(url, response, isRangeResponse);
+        return ParseResponse(url, singleByteResponse, isRangeResponse: singleByteResponse.StatusCode == HttpStatusCode.PartialContent, initialBytes: null);
     }
 
     private static HttpRequestMessage CreateRequest(
@@ -146,7 +198,7 @@ public class HttpProbeService
         return request;
     }
 
-    private static ProbeResult ParseResponse(string originalUrl, HttpResponseMessage response, bool isRangeResponse)
+    private ProbeResult ParseResponse(string originalUrl, HttpResponseMessage response, bool isRangeResponse, byte[]? initialBytes)
     {
         var finalUrl = response.RequestMessage?.RequestUri?.ToString() ?? originalUrl;
         var headers = response.Headers;
@@ -156,7 +208,7 @@ public class HttpProbeService
         var acceptRanges = headers.AcceptRanges.ToString();
         var supportsRanges = isRangeResponse || acceptRanges.Contains("bytes", StringComparison.OrdinalIgnoreCase);
 
-        // Server range deception detection: if we asked for Range: bytes=0-0 and got 200 OK, server ignored range!
+        // Server range deception detection
         if (!isRangeResponse && response.RequestMessage?.Headers.Range != null && response.StatusCode == HttpStatusCode.OK)
         {
             supportsRanges = false;
@@ -178,8 +230,32 @@ public class HttpProbeService
         var lastModified = contentHeaders.LastModified?.ToString("R");
         var contentType = contentHeaders.ContentType?.MediaType;
 
-        // Suggested file name extraction
-        var suggestedFileName = ExtractFileName(contentHeaders.ContentDisposition, finalUrl, contentType);
+        // Extract raw Content-Disposition header safely
+        string? rawCd = null;
+        if (contentHeaders.TryGetValues("Content-Disposition", out var cdVals))
+        {
+            rawCd = string.Join("; ", cdVals);
+        }
+        else if (headers.TryGetValues("Content-Disposition", out var hcdVals))
+        {
+            rawCd = string.Join("; ", hcdVals);
+        }
+        else
+        {
+            rawCd = contentHeaders.ContentDisposition?.ToString();
+        }
+
+        // Unified filename resolution via IFileNameResolver
+        var resolutionContext = new FileNameResolutionContext
+        {
+            OriginalUrl = originalUrl,
+            FinalUrl = finalUrl,
+            ContentDisposition = rawCd,
+            ContentType = contentType,
+            InitialBytes = initialBytes != null ? new ReadOnlyMemory<byte>(initialBytes) : null
+        };
+
+        var resolved = _fileNameResolver.Resolve(resolutionContext);
 
         return new ProbeResult
         {
@@ -190,92 +266,13 @@ public class HttpProbeService
             ETag = etag,
             LastModified = lastModified,
             ContentType = contentType,
-            SuggestedFileName = suggestedFileName,
+            ContentDisposition = rawCd,
+            SuggestedFileName = resolved.FileName,
+            InitialBytes = initialBytes,
+            ExtensionRecovered = resolved.ExtensionRecovered,
+            IsDangerous = resolved.IsDangerous,
             StatusCode = (int)response.StatusCode,
             IsSuccess = true
         };
     }
-
-    private static string ExtractFileName(ContentDispositionHeaderValue? disposition, string finalUrl, string? contentType = null)
-    {
-        string? rawName = null;
-
-        if (disposition != null)
-        {
-            if (!string.IsNullOrWhiteSpace(disposition.FileNameStar))
-            {
-                rawName = disposition.FileNameStar;
-            }
-            else if (!string.IsNullOrWhiteSpace(disposition.FileName))
-            {
-                rawName = disposition.FileName.Trim('"');
-            }
-        }
-
-        if (string.IsNullOrWhiteSpace(rawName))
-        {
-            try
-            {
-                var uri = new Uri(finalUrl);
-                var path = uri.AbsolutePath.TrimEnd('/');
-                var segment = Path.GetFileName(path);
-                if (!string.IsNullOrWhiteSpace(segment))
-                {
-                    rawName = Uri.UnescapeDataString(segment);
-                }
-            }
-            catch
-            {
-                // Fallback handled below
-            }
-        }
-
-        var sanitized = FileNameSanitizer.Sanitize(rawName ?? "download.bin");
-        if ((Path.GetExtension(sanitized).Length == 0 || sanitized.EndsWith(".bin", StringComparison.OrdinalIgnoreCase)) && !string.IsNullOrWhiteSpace(contentType))
-        {
-            var ext = GetExtensionFromContentType(contentType);
-            if (!string.IsNullOrEmpty(ext))
-            {
-                if (sanitized.EndsWith(".bin", StringComparison.OrdinalIgnoreCase))
-                {
-                    sanitized = Path.ChangeExtension(sanitized, ext);
-                }
-                else
-                {
-                    sanitized += ext;
-                }
-            }
-        }
-        return sanitized;
-    }
-
-    private static string? GetExtensionFromContentType(string contentType)
-    {
-        return contentType.ToLowerInvariant().Trim() switch
-        {
-            "video/mp4" => ".mp4",
-            "video/webm" => ".webm",
-            "video/x-matroska" or "video/mkv" => ".mkv",
-            "video/quicktime" => ".mov",
-            "video/x-msvideo" => ".avi",
-            "video/x-ms-wmv" => ".wmv",
-            "video/mp2t" => ".ts",
-            "audio/mpeg" or "audio/mp3" => ".mp3",
-            "audio/mp4" or "audio/m4a" or "audio/x-m4a" => ".m4a",
-            "audio/wav" or "audio/x-wav" => ".wav",
-            "audio/flac" or "audio/x-flac" => ".flac",
-            "audio/aac" => ".aac",
-            "audio/ogg" or "application/ogg" => ".ogg",
-            "application/zip" or "application/x-zip-compressed" => ".zip",
-            "application/x-7z-compressed" => ".7z",
-            "application/x-rar-compressed" or "application/vnd.rar" => ".rar",
-            "application/x-tar" => ".tar",
-            "application/gzip" or "application/x-gzip" => ".gz",
-            "application/pdf" => ".pdf",
-            "application/x-msdownload" => ".exe",
-            "application/x-iso9660-image" => ".iso",
-            _ => null
-        };
-    }
 }
-

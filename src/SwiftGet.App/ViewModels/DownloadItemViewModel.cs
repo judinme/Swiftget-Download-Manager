@@ -11,7 +11,13 @@ public sealed partial class DownloadItemViewModel : ObservableObject
     public Guid Id { get; set; }
 
     [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(IconGlyph))]
+    [NotifyPropertyChangedFor(nameof(AccentColor))]
+    [NotifyPropertyChangedFor(nameof(EffectiveCategory))]
     private string _fileName = string.Empty;
+
+    [ObservableProperty]
+    private bool _isFileNameUserLocked;
 
     [ObservableProperty]
     private string _url = string.Empty;
@@ -21,32 +27,51 @@ public sealed partial class DownloadItemViewModel : ObservableObject
 
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(IsIndeterminate))]
+    [NotifyPropertyChangedFor(nameof(FormattedSize))]
+    [NotifyPropertyChangedFor(nameof(SizeText))]
+    [NotifyPropertyChangedFor(nameof(SecondaryMetadataText))]
     private long _totalBytes;
 
     [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(FormattedDownloaded))]
     private long _downloadedBytes;
 
     [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(Progress))]
+    [NotifyPropertyChangedFor(nameof(StatusText))]
     private double _progressPercentage;
 
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(StatusBrush))]
+    [NotifyPropertyChangedFor(nameof(StatusColor))]
     [NotifyPropertyChangedFor(nameof(StatusText))]
     [NotifyPropertyChangedFor(nameof(IsIndeterminate))]
+    [NotifyPropertyChangedFor(nameof(ResumePauseGlyph))]
+    [NotifyPropertyChangedFor(nameof(FormattedSpeed))]
+    [NotifyPropertyChangedFor(nameof(FormattedTimeLeft))]
     private DownloadStatus _status = DownloadStatus.Queued;
 
     public Microsoft.UI.Xaml.Media.Brush? StatusBrush => SwiftGet.App.Converters.StatusToBrushConverter.GetBrush(Status);
 
     [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(FormattedSpeed))]
+    [NotifyPropertyChangedFor(nameof(SpeedText))]
     private double _speedBytesPerSec;
 
     [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(FormattedTimeLeft))]
+    [NotifyPropertyChangedFor(nameof(EtaText))]
     private TimeSpan _remainingTime = TimeSpan.Zero;
 
     [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(FormattedLastTryDate))]
+    [NotifyPropertyChangedFor(nameof(AddedDate))]
+    [NotifyPropertyChangedFor(nameof(SecondaryMetadataText))]
     private DateTime _lastTryDate = DateTime.Now;
 
     [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(QueueIndicator))]
+    [NotifyPropertyChangedFor(nameof(SecondaryMetadataText))]
     private string _queueName = string.Empty;
 
     [ObservableProperty]
@@ -100,17 +125,33 @@ public sealed partial class DownloadItemViewModel : ObservableObject
 
     public string QueueIndicator => string.IsNullOrEmpty(QueueName) ? "-" : QueueName[..Math.Min(1, QueueName.Length)].ToUpperInvariant();
 
+    public string EffectiveCategory
+    {
+        get
+        {
+            if (!string.IsNullOrWhiteSpace(Category) &&
+                !string.Equals(Category, "all", StringComparison.OrdinalIgnoreCase) &&
+                !string.Equals(Category, "General", StringComparison.OrdinalIgnoreCase))
+            {
+                return Category;
+            }
+
+            return SwiftGet.Core.IO.FileNameResolver.ResolveCategory(FileName);
+        }
+    }
+
     public string IconGlyph => JobKind switch
     {
         JobKind.Torrent => "\uE896",
         JobKind.Media => "\uE714",
-        _ => (Category ?? "all").ToLowerInvariant() switch
+        _ => EffectiveCategory.ToLowerInvariant() switch
         {
             "video" => "\uE714",
-            "programs" => "\uE756",
+            "programs" => "\uE7B5",
             "compressed" => "\uF012",
             "documents" => "\uE8A5",
             "music" => "\uE8D6",
+            "images" => "\uEB9F",
             "torrents" => "\uE896",
             _ => "\uE8B7"
         }
@@ -120,14 +161,15 @@ public sealed partial class DownloadItemViewModel : ObservableObject
     {
         JobKind.Torrent => new Microsoft.UI.Xaml.Media.SolidColorBrush(Windows.UI.Color.FromArgb(255, 56, 189, 248)),
         JobKind.Media => new Microsoft.UI.Xaml.Media.SolidColorBrush(Windows.UI.Color.FromArgb(255, 167, 139, 250)),
-        _ => (Category ?? "all").ToLowerInvariant() switch
+        _ => EffectiveCategory.ToLowerInvariant() switch
         {
-            "video" => new Microsoft.UI.Xaml.Media.SolidColorBrush(Windows.UI.Color.FromArgb(255, 167, 139, 250)),
-            "programs" => new Microsoft.UI.Xaml.Media.SolidColorBrush(Windows.UI.Color.FromArgb(255, 96, 165, 250)),
-            "compressed" => new Microsoft.UI.Xaml.Media.SolidColorBrush(Windows.UI.Color.FromArgb(255, 251, 191, 36)),
+            "video" => new Microsoft.UI.Xaml.Media.SolidColorBrush(Windows.UI.Color.FromArgb(255, 168, 85, 247)),
+            "programs" => new Microsoft.UI.Xaml.Media.SolidColorBrush(Windows.UI.Color.FromArgb(255, 59, 130, 246)),
+            "compressed" => new Microsoft.UI.Xaml.Media.SolidColorBrush(Windows.UI.Color.FromArgb(255, 245, 158, 11)),
             "documents" => new Microsoft.UI.Xaml.Media.SolidColorBrush(Windows.UI.Color.FromArgb(255, 129, 140, 248)),
-            "music" => new Microsoft.UI.Xaml.Media.SolidColorBrush(Windows.UI.Color.FromArgb(255, 52, 211, 153)),
-            _ => new Microsoft.UI.Xaml.Media.SolidColorBrush(Windows.UI.Color.FromArgb(255, 56, 189, 248))
+            "music" => new Microsoft.UI.Xaml.Media.SolidColorBrush(Windows.UI.Color.FromArgb(255, 16, 185, 129)),
+            "images" => new Microsoft.UI.Xaml.Media.SolidColorBrush(Windows.UI.Color.FromArgb(255, 249, 115, 22)),
+            _ => new Microsoft.UI.Xaml.Media.SolidColorBrush(Windows.UI.Color.FromArgb(255, 89, 185, 247))
         }
     };
 
@@ -192,7 +234,7 @@ public sealed partial class DownloadItemViewModel : ObservableObject
         }
     }
 
-    private static string FormatSpeed(double speed)
+    public static string FormatSpeed(double speed)
     {
         if (speed <= 0) return "0 B/s";
         if (speed < 1024) return $"{speed:0} B/s";
@@ -243,12 +285,19 @@ public sealed partial class DownloadItemViewModel : ObservableObject
 
     public string FormattedLastTryDate => LastTryDate.ToString("yyyy-MM-dd HH:mm", CultureInfo.InvariantCulture);
 
+    public string ResumePauseGlyph => Status is DownloadStatus.Downloading or DownloadStatus.FetchingMetadata or DownloadStatus.Checking or DownloadStatus.Seeding ? "\uE769" : "\uE768";
+
+    public string SecondaryMetadataText => $"Size ({FormattedSize})  •  Queue: {QueueIndicator}  •  Added: {FormattedLastTryDate}";
+
     public void UpdateProgress(long downloaded, long total, double speed)
     {
         DownloadedBytes = downloaded;
         TotalBytes = total;
         SpeedBytesPerSec = speed;
-        ProgressPercentage = total > 0 ? Math.Min(100.0, (double)downloaded / total * 100.0) : 0;
+        if (total > 0)
+        {
+            ProgressPercentage = Math.Round(Math.Min(100.0, (double)downloaded / total * 100.0), 1);
+        }
 
         if (speed > 0 && total > downloaded)
         {
@@ -271,6 +320,8 @@ public sealed partial class DownloadItemViewModel : ObservableObject
         OnPropertyChanged(nameof(StatusColor));
         OnPropertyChanged(nameof(ShareRatio));
         OnPropertyChanged(nameof(IsIndeterminate));
+        OnPropertyChanged(nameof(ResumePauseGlyph));
+        OnPropertyChanged(nameof(SecondaryMetadataText));
     }
 
     public void UpdateTorrentProgress(
@@ -313,5 +364,7 @@ public sealed partial class DownloadItemViewModel : ObservableObject
         OnPropertyChanged(nameof(StatusText));
         OnPropertyChanged(nameof(StatusColor));
         OnPropertyChanged(nameof(ShareRatio));
+        OnPropertyChanged(nameof(ResumePauseGlyph));
+        OnPropertyChanged(nameof(SecondaryMetadataText));
     }
 }

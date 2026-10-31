@@ -19,11 +19,13 @@ public sealed class ImportService : IImportService
 {
     private readonly ISwiftGetDatabase _db;
     private readonly ICategoryManager _categoryManager;
+    private readonly SwiftGet.Core.IO.IFileNameResolver _fileNameResolver;
 
-    public ImportService(ISwiftGetDatabase db, ICategoryManager categoryManager)
+    public ImportService(ISwiftGetDatabase db, ICategoryManager categoryManager, SwiftGet.Core.IO.IFileNameResolver? fileNameResolver = null)
     {
         _db = db ?? throw new ArgumentNullException(nameof(db));
         _categoryManager = categoryManager ?? throw new ArgumentNullException(nameof(categoryManager));
+        _fileNameResolver = fileNameResolver ?? new SwiftGet.Core.IO.FileNameResolver();
     }
 
     public async Task<int> ImportFromJsonFileAsync(string filePath, CancellationToken ct = default)
@@ -87,7 +89,7 @@ public sealed class ImportService : IImportService
                 continue;
             }
 
-            var fileName = Path.GetFileName(uri.LocalPath);
+            var fileName = _fileNameResolver.ResolveInitialCandidate(line);
             if (string.IsNullOrWhiteSpace(fileName))
             {
                 fileName = "download.bin";

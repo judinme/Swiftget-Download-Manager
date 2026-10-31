@@ -114,8 +114,8 @@ public sealed class StatusToBrushConverter : IValueConverter
         {
             return status switch
             {
-                DownloadStatus.Downloading => _blueBrush ??= new SolidColorBrush(ColorHelper.FromArgb(255, 0, 120, 215)),
-                DownloadStatus.Completed => _greenBrush ??= new SolidColorBrush(ColorHelper.FromArgb(255, 16, 124, 65)),
+                DownloadStatus.Downloading => _blueBrush ??= new SolidColorBrush(ColorHelper.FromArgb(255, 0x3B, 0x9E, 0xFF)),
+                DownloadStatus.Completed => _greenBrush ??= new SolidColorBrush(ColorHelper.FromArgb(255, 0x2C, 0xCB, 0x70)),
                 DownloadStatus.Seeding => _tealBrush ??= new SolidColorBrush(ColorHelper.FromArgb(255, 13, 148, 136)),
                 DownloadStatus.Paused => _amberBrush ??= new SolidColorBrush(ColorHelper.FromArgb(255, 202, 138, 4)),
                 DownloadStatus.Failed => _redBrush ??= new SolidColorBrush(ColorHelper.FromArgb(255, 232, 17, 35)),
@@ -151,6 +151,55 @@ public sealed class BoolToVisibilityConverter : IValueConverter
         }
 
         return isTrue ? Visibility.Visible : Visibility.Collapsed;
+    }
+
+    public object ConvertBack(object? value, Type targetType, object? parameter, string language) =>
+        throw new NotSupportedException();
+}
+
+public sealed class TabNameToVisibilityConverter : IValueConverter
+{
+    public object Convert(object? value, Type targetType, object? parameter, string language)
+    {
+        if (value is string activeTab && parameter is string targetTab)
+        {
+            return activeTab.Equals(targetTab, StringComparison.OrdinalIgnoreCase)
+                ? Visibility.Visible
+                : Visibility.Collapsed;
+        }
+        return Visibility.Collapsed;
+    }
+
+    public object ConvertBack(object? value, Type targetType, object? parameter, string language) =>
+        throw new NotSupportedException();
+}
+
+public sealed class TabNameToBrushConverter : IValueConverter
+{
+    public object Convert(object? value, Type targetType, object? parameter, string language)
+    {
+        bool isActive = value is string activeTab && parameter is string targetTab &&
+                        activeTab.Equals(targetTab, StringComparison.OrdinalIgnoreCase);
+
+        return isActive
+            ? new SolidColorBrush(Windows.UI.Color.FromArgb(255, 0x44, 0x44, 0x44))
+            : new SolidColorBrush(Microsoft.UI.Colors.Transparent);
+    }
+
+    public object ConvertBack(object? value, Type targetType, object? parameter, string language) =>
+        throw new NotSupportedException();
+}
+
+public sealed class TabNameToForegroundConverter : IValueConverter
+{
+    public object Convert(object? value, Type targetType, object? parameter, string language)
+    {
+        bool isActive = value is string activeTab && parameter is string targetTab &&
+                        activeTab.Equals(targetTab, StringComparison.OrdinalIgnoreCase);
+
+        return isActive
+            ? new SolidColorBrush(Windows.UI.Color.FromArgb(255, 0xFF, 0xFF, 0xFF))
+            : new SolidColorBrush(Windows.UI.Color.FromArgb(255, 0x8C, 0x8C, 0x8C));
     }
 
     public object ConvertBack(object? value, Type targetType, object? parameter, string language) =>

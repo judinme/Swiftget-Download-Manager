@@ -130,7 +130,8 @@ public sealed class SqliteDatabase : ISwiftGetDatabase
                     referrer TEXT,
                     user_agent TEXT,
                     custom_headers_json TEXT,
-                    cookies_json TEXT
+                    cookies_json TEXT,
+                    is_user_locked INTEGER NOT NULL DEFAULT 0
                 );
 
                 CREATE TABLE IF NOT EXISTS segments (
@@ -407,7 +408,8 @@ public sealed class SqliteDatabase : ISwiftGetDatabase
                     referrer TEXT,
                     user_agent TEXT,
                     custom_headers_json TEXT,
-                    cookies_json TEXT
+                    cookies_json TEXT,
+                    is_user_locked INTEGER NOT NULL DEFAULT 0
                 );
 
                 INSERT INTO downloads_reconciled (id, url, destination_path, file_name, total_bytes, downloaded_bytes, status, created_at_utc, category_id, queue_id)
@@ -483,7 +485,8 @@ public sealed class SqliteDatabase : ISwiftGetDatabase
             ["custom_headers_json"] = "TEXT",
             ["cookies_json"] = "TEXT",
             ["job_kind"] = "TEXT NOT NULL DEFAULT 'Http'",
-            ["info_hash"] = "TEXT"
+            ["info_hash"] = "TEXT",
+            ["is_user_locked"] = "INTEGER NOT NULL DEFAULT 0"
         };
 
         foreach (var (col, colDef) in requiredColumns)
@@ -521,13 +524,13 @@ public sealed class SqliteDatabase : ISwiftGetDatabase
                     status, job_kind, info_hash, etag, last_modified, content_type, supports_ranges, checksum_expected,
                     checksum_actual, checksum_type, created_at_utc, completed_at_utc, error_message,
                     retry_count, speed_limit_bytes_per_sec, queue_id, category_id, priority, referrer,
-                    user_agent, custom_headers_json, cookies_json
+                    user_agent, custom_headers_json, cookies_json, is_user_locked
                 ) VALUES (
                     $id, $url, $final_url, $destination_path, $file_name, $total_bytes, $downloaded_bytes,
                     $status, $job_kind, $info_hash, $etag, $last_modified, $content_type, $supports_ranges, $checksum_expected,
                     $checksum_actual, $checksum_type, $created_at_utc, $completed_at_utc, $error_message,
                     $retry_count, $speed_limit_bytes_per_sec, $queue_id, $category_id, $priority, $referrer,
-                    $user_agent, $custom_headers_json, $cookies_json
+                    $user_agent, $custom_headers_json, $cookies_json, $is_user_locked
                 ) ON CONFLICT(id) DO UPDATE SET
                     url = excluded.url,
                     final_url = excluded.final_url,
@@ -555,7 +558,8 @@ public sealed class SqliteDatabase : ISwiftGetDatabase
                     referrer = excluded.referrer,
                     user_agent = excluded.user_agent,
                     custom_headers_json = excluded.custom_headers_json,
-                    cookies_json = excluded.cookies_json;";
+                    cookies_json = excluded.cookies_json,
+                    is_user_locked = excluded.is_user_locked;";
 
             cmd.Parameters.AddWithValue("$id", item.Id);
             cmd.Parameters.AddWithValue("$url", item.Url);
@@ -589,6 +593,7 @@ public sealed class SqliteDatabase : ISwiftGetDatabase
             cmd.Parameters.AddWithValue("$user_agent", (object?)item.UserAgent ?? DBNull.Value);
             cmd.Parameters.AddWithValue("$custom_headers_json", (object?)item.CustomHeadersJson ?? DBNull.Value);
             cmd.Parameters.AddWithValue("$cookies_json", (object?)item.CookiesJson ?? DBNull.Value);
+            cmd.Parameters.AddWithValue("$is_user_locked", item.IsFileNameUserLocked ? 1 : 0);
 
             await cmd.ExecuteNonQueryAsync(ct).ConfigureAwait(false);
         }
@@ -853,6 +858,7 @@ public sealed class SqliteDatabase : ISwiftGetDatabase
     {
         var jobKindOrd = GetOrdinalSafe(reader, "job_kind");
         var infoHashOrd = GetOrdinalSafe(reader, "info_hash");
+        var isLockedOrd = GetOrdinalSafe(reader, "is_user_locked");
 
         return new DownloadItem
         {
@@ -861,6 +867,7 @@ public sealed class SqliteDatabase : ISwiftGetDatabase
             FinalUrl = reader.GetString(reader.GetOrdinal("final_url")),
             DestinationPath = reader.GetString(reader.GetOrdinal("destination_path")),
             FileName = reader.GetString(reader.GetOrdinal("file_name")),
+            IsFileNameUserLocked = isLockedOrd >= 0 && !reader.IsDBNull(isLockedOrd) && reader.GetInt32(isLockedOrd) == 1,
             TotalBytes = reader.GetInt64(reader.GetOrdinal("total_bytes")),
             DownloadedBytes = reader.GetInt64(reader.GetOrdinal("downloaded_bytes")),
             Status = Enum.Parse<DownloadStatus>(reader.GetString(reader.GetOrdinal("status"))),
@@ -1178,6 +1185,7 @@ public sealed class SqliteDatabase : ISwiftGetDatabase
             var conn = GetOpenConnection();
             using var cmd = conn.CreateCommand();
             cmd.CommandText = @"
+                DELETE FROM torrents WHERE info_hash = $info_hash AND id != $id;
                 INSERT INTO torrents (
                     id, info_hash, magnet_uri, name, total_bytes, piece_length, piece_count,
                     is_private, seed_ratio_limit, seed_time_limit_mins, uploaded_bytes,
