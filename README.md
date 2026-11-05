@@ -4,6 +4,18 @@
 
 Under the hood it is built on C# 12 / .NET 8, WinUI 3 and SQLite, and it ships as a self-contained WiX MSI installer.
 
+![SwiftGet Download Manager main window](docs/screenshots/main-window.png)
+
+## Download
+
+| File | Description |
+| :--- | :--- |
+| [SwiftGet-1.0.0-x64.msi](https://github.com/judinme/Swiftget-Download-Manager/releases/download/v1.0.0/SwiftGet-1.0.0-x64.msi) | Windows installer (x64, self-contained) |
+| [swiftget-chromium-v1.0.0.zip](https://github.com/judinme/Swiftget-Download-Manager/releases/download/v1.0.0/swiftget-chromium-v1.0.0.zip) | Browser extension for Chrome, Edge, Brave and Opera |
+| [swiftget-firefox-v1.0.0.xpi](https://github.com/judinme/Swiftget-Download-Manager/releases/download/v1.0.0/swiftget-firefox-v1.0.0.xpi) | Browser extension for Firefox |
+
+All files and their SHA-256 checksums are on the [v1.0.0 release page](https://github.com/judinme/Swiftget-Download-Manager/releases/tag/v1.0.0).
+
 ---
 
 ## Features
@@ -90,11 +102,27 @@ See [docs/architecture.md](docs/architecture.md) for the full design, [docs/api-
 
 ## Installation
 
-1. Download `SwiftGet-<version>-x64.msi` from the [Releases](https://github.com/judinme/Swiftget-Download-Manager/releases) page.
-2. Run the installer and follow the setup wizard.
-3. Install the browser extension:
-   - **Chrome / Edge / Brave**: open `chrome://extensions`, turn on *Developer mode*, choose *Load unpacked* and select the `extension/` folder (or use the packaged `swiftget-chromium-v<version>.zip`).
-   - **Firefox**: load `swiftget-firefox-v<version>.xpi`.
+### 1. Install the app
+
+1. Download `SwiftGet-1.0.0-x64.msi` from the [Releases](https://github.com/judinme/Swiftget-Download-Manager/releases) page.
+2. Run it and follow the setup wizard. If Windows SmartScreen warns about an unknown publisher, click **More info → Run anyway** (the installer is not code-signed yet).
+3. The installer also registers the native messaging host that connects the browser extension to the app.
+
+### 2. Install the browser extension
+
+**Chrome / Edge / Brave / Opera**
+
+1. Download `swiftget-chromium-v1.0.0.zip` and extract it to a permanent folder, for example `C:\SwiftGet-Extension`. Don't delete this folder later, because the browser loads the extension from it.
+2. Open `chrome://extensions` (or `edge://extensions` in Edge, `brave://extensions` in Brave).
+3. Turn on **Developer mode**.
+4. Click **Load unpacked** and select the extracted folder.
+5. Check that the extension ID is `albogoggaijdbgdldghgfcjakpdbmmfm`. That is the ID the installer authorizes for native messaging.
+
+**Firefox**
+
+1. Download `swiftget-firefox-v1.0.0.xpi`.
+2. Open `about:debugging#/runtime/this-firefox`, click **Load Temporary Add-on…** and select the `.xpi`.
+   The add-on is not signed by Mozilla yet, so release builds of Firefox remove it when the browser restarts. Firefox Developer Edition or Nightly with `xpinstall.signatures.required = false` can install it permanently.
 
 ---
 
