@@ -13,7 +13,10 @@
   position: absolute !important;
   top: 12px !important;
   right: 12px !important;
-  z-index: 2147483640 !important;
+  z-index: 2147483647 !important;
+  pointer-events: auto !important;
+  isolation: isolate !important;
+  touch-action: manipulation !important;
   display: inline-flex !important;
   align-items: center !important;
   gap: 8px !important;
@@ -35,6 +38,10 @@
   box-sizing: border-box !important;
 }
 
+.swiftget-video-overlay-btn * {
+  pointer-events: none !important;
+}
+
 .swiftget-video-overlay-btn:hover {
   background: rgba(45, 45, 45, 0.98) !important;
   border-color: rgba(255, 255, 255, 0.4) !important;
@@ -51,6 +58,7 @@
   height: 15px !important;
   fill: currentColor !important;
   flex-shrink: 0 !important;
+  pointer-events: none !important;
 }
 
 /* --------------------------------------------------------------------------
@@ -60,7 +68,9 @@
   position: absolute !important;
   top: 48px !important;
   right: 12px !important;
-  z-index: 2147483645 !important;
+  z-index: 2147483647 !important;
+  pointer-events: auto !important;
+  isolation: isolate !important;
   min-width: 460px !important;
   max-width: 620px !important;
   background: #1b1b1b !important;

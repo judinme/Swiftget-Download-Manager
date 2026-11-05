@@ -34,8 +34,12 @@ public sealed partial class StreamRecorder
     [GeneratedRegex(@"of\s+~?([\d\.]+)\s*([KMGTP]?i?B)", RegexOptions.IgnoreCase)]
     private static partial Regex YtDlpTotalSizeRegex();
 
+    [GeneratedRegex(@"\[download\]\s+Destination:\s+(.+)", RegexOptions.IgnoreCase)]
+    private static partial Regex YtDlpDestinationRegex();
+
     public event EventHandler<double>? ProgressChanged;
     public event EventHandler<StreamProgressEventArgs>? DetailedProgressChanged;
+    public event EventHandler<string>? DestinationDiscovered;
 
     public StreamRecorder(SidecarManager sidecarManager, ILogger<StreamRecorder>? logger = null)
     {
@@ -71,7 +75,14 @@ public sealed partial class StreamRecorder
             Directory.CreateDirectory(dir);
         }
 
-        var args = new List<string>();
+        var args = new List<string>
+        {
+            "--newline",
+            "--progress",
+            "--no-playlist",
+            "--concurrent-fragments", "4"
+        };
+
         if (!string.IsNullOrWhiteSpace(formatId))
         {
             args.Add("-f");
@@ -96,11 +107,30 @@ public sealed partial class StreamRecorder
             args.Add("--merge-output-format");
             args.Add(requestedExt);
         }
+        else
+        {
+            args.Add("--merge-output-format");
+            args.Add("mp4");
+        }
 
         args.Add("--no-part");
         args.Add("--no-warnings");
-        args.Add("-o");
-        args.Add(resolvedDest);
+
+        var fileNameWithoutExt = Path.GetFileNameWithoutExtension(resolvedDest);
+        if (string.IsNullOrWhiteSpace(fileNameWithoutExt) ||
+            fileNameWithoutExt.Equals("watch", StringComparison.OrdinalIgnoreCase) ||
+            fileNameWithoutExt.Equals("video", StringComparison.OrdinalIgnoreCase) ||
+            fileNameWithoutExt.StartsWith("download", StringComparison.OrdinalIgnoreCase))
+        {
+            args.Add("-o");
+            args.Add(Path.Combine(dir ?? string.Empty, "%(title)s.%(ext)s"));
+        }
+        else
+        {
+            args.Add("-o");
+            args.Add(resolvedDest);
+        }
+
         args.Add(streamUrl);
 
         _logger.LogInformation("Recording media stream to {DestinationPath}", resolvedDest);
@@ -244,6 +274,16 @@ public sealed partial class StreamRecorder
     private void ParseYtDlpOutput(string line)
     {
         if (string.IsNullOrWhiteSpace(line)) return;
+
+        var destMatch = YtDlpDestinationRegex().Match(line);
+        if (destMatch.Success)
+        {
+            var discoveredPath = destMatch.Groups[1].Value.Trim();
+            if (!string.IsNullOrWhiteSpace(discoveredPath))
+            {
+                DestinationDiscovered?.Invoke(this, discoveredPath);
+            }
+        }
 
         var percentMatch = YtDlpPercentRegex().Match(line);
         if (!percentMatch.Success || !double.TryParse(percentMatch.Groups[1].Value, NumberStyles.Float, CultureInfo.InvariantCulture, out var percent))

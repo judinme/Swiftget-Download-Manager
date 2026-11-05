@@ -19,6 +19,18 @@ public sealed class InterceptDownloadRequest
     public bool ShowDialog { get; set; } = true;
     public bool StartImmediately { get; set; } = true;
     public string? DestinationPath { get; set; }
+    public int? WindowLeft { get; set; }
+    public int? WindowTop { get; set; }
+    public int? WindowWidth { get; set; }
+    public int? WindowHeight { get; set; }
+    public long TotalBytes { get; set; }
+    public string? EventId { get; set; }
+    public DateTime? CreatedAtUtc { get; set; }
+    public int TabId { get; set; } = -1;
+    public string? Initiator { get; set; }
+    public bool UserGesture { get; set; } = true;
+    public bool ExplicitUserAction { get; set; }
+    public string? MimeType { get; set; }
 }
 
 public sealed class InterceptBatchRequest

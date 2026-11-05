@@ -94,6 +94,7 @@ public class SegmentWorker
         }
 
         await using var stream = await response.Content.ReadAsStreamAsync(ct).ConfigureAwait(false);
+        using var readCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
 
         while (_segment.CurrentOffset <= _segment.EndOffset)
         {
@@ -107,7 +108,13 @@ public class SegmentWorker
 
             try
             {
-                bytesRead = await stream.ReadAsync(buffer.AsMemory(0, maxToRead), ct).ConfigureAwait(false);
+                readCts.CancelAfter(TimeSpan.FromSeconds(30));
+                bytesRead = await stream.ReadAsync(buffer.AsMemory(0, maxToRead), readCts.Token).ConfigureAwait(false);
+            }
+            catch (OperationCanceledException) when (!ct.IsCancellationRequested)
+            {
+                ArrayPool<byte>.Shared.Return(buffer);
+                throw new TimeoutException($"Segment {_segment.SegmentIndex} connection stalled (no bytes received for 30s).");
             }
             catch
             {
@@ -160,6 +167,8 @@ public class SegmentWorker
     private HttpRequestMessage CreateRequest()
     {
         var request = new HttpRequestMessage(HttpMethod.Get, _item.FinalUrl);
+        request.Headers.TryAddWithoutValidation("X-SwiftGet-Origin", "1");
+        request.Headers.TryAddWithoutValidation("X-SwiftGet-Session-Token", SwiftGet.Engine.Integration.CaptureGatekeeper.SessionOriginToken);
 
         if (_item.SupportsRanges && _segment.EndOffset >= _segment.CurrentOffset)
         {

@@ -811,6 +811,207 @@ test('Background Worker: CHECK_CONNECTION falls back to Loopback API when Native
   assert.equal(env.storage.authToken, 'loopback_token_xyz');
 });
 
+test('Background Worker: Drops stale download history on startup (startTime older than 15s TTL)', async () => {
+  const env = createBackgroundMockEnvironment();
+  const runWorker = new Function('chrome', 'navigator', backgroundScriptCode);
+  runWorker(env.mockChrome, env.mockNavigator);
+
+  const onCreatedHandler = env.listeners.downloadsCreated[0];
+  const staleTime = new Date(Date.now() - 60000).toISOString(); // 60s old
+  await onCreatedHandler({
+    id: 3001,
+    url: 'https://example.com/old-installer.exe',
+    filename: 'old-installer.exe',
+    mime: 'application/octet-stream',
+    state: 'in_progress',
+    startTime: staleTime
+  });
+
+  assert.equal(env.downloadsCancelled.length, 0, 'Stale download must NOT be cancelled');
+  assert.equal(env.nativeMessages.length, 0, 'Stale download must NOT be forwarded to native host');
+});
+
+test('Background Worker: Ignores claude.ai/api markdown attachment, gradle.properties, and .appinstaller', async () => {
+  const env = createBackgroundMockEnvironment({ blacklist: undefined });
+  const runWorker = new Function('chrome', 'navigator', backgroundScriptCode);
+  runWorker(env.mockChrome, env.mockNavigator);
+
+  const onCreatedHandler = env.listeners.downloadsCreated[0];
+
+  // 1. claude.ai API blob/markdown
+  await onCreatedHandler({
+    id: 3002,
+    url: 'https://claude.ai/api/organizations/12345/artifacts/DocuForge-PDF-Toolbox-Documentation.md',
+    filename: 'DocuForge-PDF-Toolbox-Documentation.md',
+    mime: 'text/markdown',
+    state: 'in_progress',
+    startTime: new Date().toISOString()
+  });
+
+  // 2. gradle.properties
+  await onCreatedHandler({
+    id: 3003,
+    url: 'https://repo.example.com/project/gradle.properties',
+    filename: 'gradle.properties',
+    mime: 'text/plain',
+    fileSize: 1024,
+    state: 'in_progress',
+    startTime: new Date().toISOString()
+  });
+
+  // 3. .appinstaller
+  await onCreatedHandler({
+    id: 3004,
+    url: 'https://download.microsoft.com/Microsoft.SurfaceITToolkit.UI_x64.appinstaller',
+    filename: 'Microsoft.SurfaceITToolkit.UI_x64.appinstaller',
+    mime: 'application/xml',
+    fileSize: 4096,
+    state: 'in_progress',
+    startTime: new Date().toISOString()
+  });
+
+  // 4. blob: URL
+  await onCreatedHandler({
+    id: 3005,
+    url: 'blob:https://claude.ai/abc-123-def',
+    filename: 'export.json',
+    mime: 'application/json',
+    state: 'in_progress',
+    startTime: new Date().toISOString()
+  });
+
+  assert.equal(env.nativeMessages.length, 0, 'None of the non-download / API / config items should be captured');
+  assert.equal(env.downloadsCancelled.length, 0, 'Browser downloads for ignored items must be left alone');
+});
+
+test('Background Worker: When SwiftGet is closed (appNotRunning=true), browser download is NOT cancelled and NOT queued', async () => {
+  const env = createBackgroundMockEnvironment();
+  env.mockChrome.runtime.sendNativeMessage = (name, payload, cb) => {
+    env.nativeMessages.push({ name, payload });
+    if (cb) cb({ success: false, appNotRunning: true, ack: true });
+  };
+  const mockFetch = async () => ({ ok: false });
+
+  const runWorker = new Function('chrome', 'navigator', 'fetch', backgroundScriptCode);
+  runWorker(env.mockChrome, env.mockNavigator, mockFetch);
+
+  const onCreatedHandler = env.listeners.downloadsCreated[0];
+  await onCreatedHandler({
+    id: 3006,
+    url: 'https://releases.ubuntu.com/24.04/ubuntu.iso',
+    filename: 'ubuntu.iso',
+    mime: 'application/octet-stream',
+    fileSize: 104857600,
+    state: 'in_progress',
+    startTime: new Date().toISOString()
+  });
+
+  assert.equal(env.downloadsCancelled.length, 0, 'Browser download must NOT be cancelled when SwiftGet is closed');
+});
+
+test('Background Worker: Strips YouTube Radio/Mix playlist parameters (list=RD...) on media capture', async () => {
+  const env = createBackgroundMockEnvironment();
+  const runWorker = new Function('chrome', 'navigator', backgroundScriptCode);
+  runWorker(env.mockChrome, env.mockNavigator);
+
+  const messageHandler = env.listeners.messages[0];
+  await new Promise((resolve) => {
+    messageHandler({
+      type: 'INTERCEPT_MEDIA',
+      url: 'https://www.youtube.com/watch?v=dQw4w9WgXcQ&list=RDdQw4w9WgXcQ&start_radio=1&index=2',
+      title: 'Music Video',
+      userGesture: true
+    }, { tab: { id: 12, url: 'https://www.youtube.com/watch?v=dQw4w9WgXcQ&list=RDdQw4w9WgXcQ&start_radio=1' } }, resolve);
+  });
+
+  assert.equal(env.nativeMessages.length, 1);
+  assert.equal(env.nativeMessages[0].payload.url, 'https://www.youtube.com/watch?v=dQw4w9WgXcQ');
+});
+
+test('Content Script: "Download this video" button mounts on outer player root, shields pointerdown/mousedown, and triggers INTERCEPT_MEDIA on single click', () => {
+  const { mockChrome, mockWindow, mockDocument, messagesSent, eventListeners } = createMockEnvironment();
+  mockWindow.location.href = 'https://www.youtube.com/watch?v=dQw4w9WgXcQ';
+  mockDocument.title = 'Rick Astley - Never Gonna Give You Up - YouTube';
+
+  const outerPlayerChildren = [];
+  const innerWrapperChildren = [];
+
+  const mockOuterPlayer = {
+    id: 'movie_player',
+    style: {},
+    appendChild: (el) => {
+      outerPlayerChildren.push(el);
+      el.parentElement = mockOuterPlayer;
+    }
+  };
+
+  const mockInnerWrapper = {
+    className: 'html5-video-container',
+    style: { pointerEvents: 'none' },
+    parentElement: mockOuterPlayer,
+    appendChild: (el) => innerWrapperChildren.push(el)
+  };
+
+  const mockVideo = {
+    tagName: 'VIDEO',
+    currentSrc: 'blob:https://www.youtube.com/1234-5678',
+    dataset: {},
+    parentElement: mockInnerWrapper,
+    closest: (selector) => (selector.includes('#movie_player') ? mockOuterPlayer : null),
+    getBoundingClientRect: () => ({ width: 1280, height: 720 }),
+    addEventListener: () => {}
+  };
+
+  mockDocument.querySelectorAll = (selector) => {
+    if (selector.includes('video')) return [mockVideo];
+    return [];
+  };
+
+  const runScript = new Function('window', 'document', 'chrome', contentScriptCode);
+  runScript(mockWindow, mockDocument, mockChrome);
+
+  assert.equal(innerWrapperChildren.length, 0, 'Must NOT attach inside pointer-events:none inner .html5-video-container');
+  assert.equal(outerPlayerChildren.length, 1, 'Must attach directly to outer #movie_player container above sibling overlays');
+
+  const btn = outerPlayerChildren[0];
+  assert.equal(btn.style.pointerEvents, 'auto');
+  assert.equal(btn.style.zIndex, '2147483647');
+
+  // Verify window capture listener shields pointerdown/mousedown from reaching video player
+  const pointerdownCaptureListeners = (eventListeners.get('pointerdown') || []).filter(l => l.useCapture);
+  assert.ok(pointerdownCaptureListeners.length > 0, 'Must register capture-phase pointerdown shield on window');
+
+  let propStopped = false;
+  let immediateStopped = false;
+  pointerdownCaptureListeners[0].handler({
+    target: { closest: (sel) => (sel === '.swiftget-video-overlay-btn' ? btn : null) },
+    stopPropagation: () => { propStopped = true; },
+    stopImmediatePropagation: () => { immediateStopped = true; }
+  });
+  assert.equal(propStopped, true, 'pointerdown propagation must be stopped in capture phase');
+  assert.equal(immediateStopped, true, 'pointerdown immediate propagation must be stopped in capture phase');
+
+  // Verify single click on button (or inner span via capture listener) immediately dispatches INTERCEPT_MEDIA
+  const clickCaptureListeners = (eventListeners.get('click') || []).filter(l => l.useCapture);
+  let clickPrevented = false;
+  for (const l of clickCaptureListeners) {
+    l.handler({
+      target: { closest: (sel) => (sel === '.swiftget-video-overlay-btn' ? btn : null) },
+      preventDefault: () => { clickPrevented = true; },
+      stopPropagation: () => {},
+      stopImmediatePropagation: () => {}
+    });
+  }
+
+  assert.equal(clickPrevented, true);
+  const mediaMsg = messagesSent.find(m => m.type === 'INTERCEPT_MEDIA');
+  assert.ok(mediaMsg, 'Single click on "Download this video" must immediately dispatch INTERCEPT_MEDIA');
+  assert.equal(mediaMsg.url, 'https://www.youtube.com/watch?v=dQw4w9WgXcQ');
+  assert.equal(mediaMsg.title, 'Rick Astley - Never Gonna Give You Up');
+  assert.equal(mediaMsg.explicitUserAction, true);
+});
+
+
 
 
 

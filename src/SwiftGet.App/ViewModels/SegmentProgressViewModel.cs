@@ -9,9 +9,11 @@ public sealed partial class SegmentProgressViewModel : ObservableObject
     private int _index;
 
     [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(RangeDescription))]
     private long _startOffset;
 
     [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(RangeDescription))]
     private long _endOffset;
 
     [ObservableProperty]

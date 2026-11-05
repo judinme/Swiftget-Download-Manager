@@ -51,10 +51,25 @@ public sealed partial class DownloadDialogViewModel : ObservableObject
 
     public ObservableCollection<SegmentProgressViewModel> ConnectionRows => Item.Segments;
 
+    public Action<DownloadItemViewModel>? PauseHandler { get; set; }
+    public Func<DownloadItemViewModel, Task>? ResumeHandler { get; set; }
+    public Action<DownloadItemViewModel>? CancelHandler { get; set; }
+
+    public string PauseResumeButtonText =>
+        Item.Status is DownloadStatus.Paused or DownloadStatus.Queued or DownloadStatus.Failed ? "Resume" : "Pause";
+
     public DownloadDialogViewModel(DownloadItemViewModel item, TokenBucketLimiter? limiter = null)
     {
         _item = item ?? throw new ArgumentNullException(nameof(item));
         _limiter = limiter;
+
+        _item.PropertyChanged += (s, e) =>
+        {
+            if (e.PropertyName == nameof(DownloadItemViewModel.Status))
+            {
+                OnPropertyChanged(nameof(PauseResumeButtonText));
+            }
+        };
     }
 
     [RelayCommand]
@@ -64,17 +79,30 @@ public sealed partial class DownloadDialogViewModel : ObservableObject
     }
 
     [RelayCommand]
-    private void TogglePause()
+    private async Task TogglePauseAsync()
     {
-        if (Item.Status == DownloadStatus.Downloading)
+        if (Item.Status is DownloadStatus.Downloading or DownloadStatus.Allocating or DownloadStatus.Probing or DownloadStatus.FetchingMetadata or DownloadStatus.Checking or DownloadStatus.Seeding)
         {
+            PauseHandler?.Invoke(Item);
             Item.Status = DownloadStatus.Paused;
+            Item.SpeedBytesPerSec = 0;
             Item.UpdateProgress(Item.DownloadedBytes, Item.TotalBytes, 0);
         }
-        else if (Item.Status == DownloadStatus.Paused)
+        else if (Item.Status is DownloadStatus.Paused or DownloadStatus.Queued or DownloadStatus.Failed)
         {
             Item.Status = DownloadStatus.Downloading;
+            if (ResumeHandler != null)
+            {
+                await ResumeHandler.Invoke(Item);
+            }
         }
+        OnPropertyChanged(nameof(PauseResumeButtonText));
+    }
+
+    [RelayCommand]
+    private void Cancel()
+    {
+        CancelHandler?.Invoke(Item);
     }
 
     partial void OnIsLimiterEnabledChanged(bool value)

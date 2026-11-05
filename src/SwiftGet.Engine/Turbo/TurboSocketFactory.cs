@@ -54,8 +54,9 @@ public static class TurboSocketFactory
         var handler = new SocketsHttpHandler
         {
             AllowAutoRedirect = true,
-            AutomaticDecompression = DecompressionMethods.All,
+            AutomaticDecompression = DecompressionMethods.None,
             EnableMultipleHttp2Connections = true,
+            ConnectTimeout = TimeSpan.FromSeconds(15),
             InitialHttp2StreamWindowSize = 4 * 1024 * 1024, // 4 MB
             PooledConnectionLifetime = TimeSpan.FromMinutes(15),
             PooledConnectionIdleTimeout = TimeSpan.FromMinutes(2),

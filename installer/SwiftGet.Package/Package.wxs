@@ -9,7 +9,7 @@
            UpgradeCode="4D3B03D2-6AC6-4999-9233-C613A5C98DF7"
            Scope="perMachine">
     <MajorUpgrade AllowSameVersionUpgrades="no" DowngradeErrorMessage="A newer or equal version of [ProductName] is already installed." />
-    <MediaTemplate EmbedCab="yes" />
+    <MediaTemplate EmbedCab="yes" MaximumUncompressedMediaSize="1000" />
 
     <Icon Id="AppIcon" SourceFile="$(var.AssetsDir)\app.ico" />
     <Property Id="ARPPRODUCTICON" Value="AppIcon" />

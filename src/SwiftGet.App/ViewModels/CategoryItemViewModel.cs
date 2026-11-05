@@ -42,7 +42,7 @@ public sealed partial class CategoryItemViewModel : ObservableObject
         return CategoryKey switch
         {
             "all" => true,
-            "unfinished" => item.Status is DownloadStatus.Downloading or DownloadStatus.Paused or DownloadStatus.Queued or DownloadStatus.FetchingMetadata or DownloadStatus.Checking or DownloadStatus.Failed,
+            "unfinished" => item.Status is DownloadStatus.Downloading or DownloadStatus.Paused or DownloadStatus.Queued or DownloadStatus.FetchingMetadata or DownloadStatus.Checking or DownloadStatus.Failed or DownloadStatus.Cancelled,
             "finished" => item.Status is DownloadStatus.Completed or DownloadStatus.Seeding,
             "torrents" => item.JobKind == JobKind.Torrent || string.Equals(item.Category, "torrents", StringComparison.OrdinalIgnoreCase) || MatchesExtension(item.FileName, [".torrent"]),
             "grabber" => item.IsGrabberProject,

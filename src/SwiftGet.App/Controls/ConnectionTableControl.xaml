@@ -47,11 +47,11 @@
                             <ColumnDefinition Width="80" />
                         </Grid.ColumnDefinitions>
 
-                        <TextBlock Grid.Column="0" Text="{x:Bind Index}" FontSize="12" VerticalAlignment="Center" />
-                        <TextBlock Grid.Column="1" Text="{x:Bind Status}" FontSize="12" VerticalAlignment="Center" />
-                        <TextBlock Grid.Column="2" Text="{x:Bind RangeDescription}" FontSize="12" VerticalAlignment="Center" TextTrimming="CharacterEllipsis" />
-                        <TextBlock Grid.Column="3" Text="{x:Bind FormattedDownloaded}" FontSize="12" VerticalAlignment="Center" />
-                        <TextBlock Grid.Column="4" Text="{x:Bind FormattedSpeed}" FontSize="12" VerticalAlignment="Center" HorizontalAlignment="Right" />
+                        <TextBlock Grid.Column="0" Text="{x:Bind Index, Mode=OneWay}" FontSize="12" VerticalAlignment="Center" />
+                        <TextBlock Grid.Column="1" Text="{x:Bind Status, Mode=OneWay}" FontSize="12" VerticalAlignment="Center" />
+                        <TextBlock Grid.Column="2" Text="{x:Bind RangeDescription, Mode=OneWay}" FontSize="12" VerticalAlignment="Center" TextTrimming="CharacterEllipsis" />
+                        <TextBlock Grid.Column="3" Text="{x:Bind FormattedDownloaded, Mode=OneWay}" FontSize="12" VerticalAlignment="Center" />
+                        <TextBlock Grid.Column="4" Text="{x:Bind FormattedSpeed, Mode=OneWay}" FontSize="12" VerticalAlignment="Center" HorizontalAlignment="Right" />
                     </Grid>
                 </DataTemplate>
             </ListView.ItemTemplate>

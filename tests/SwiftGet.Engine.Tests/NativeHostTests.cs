@@ -284,5 +284,31 @@ public sealed class NativeHostTests : IAsyncDisposable
         var all = await _db.GetAllDownloadsAsync();
         all.Should().ContainSingle(d => d.Url == "https://example.com/unique.zip");
     }
+
+    [Fact]
+    public async Task RouteMessage_InterceptDownload_WithWindowBoundsAndMetadata_Succeeds()
+    {
+        await _db.InitializeAsync();
+        await _categoryManager.InitializeAsync();
+        var router = new NativeMessageRouter(_db, _categoryManager);
+        var correlationId = Guid.NewGuid().ToString("N");
+        var requestJson = "{\"action\":\"interceptDownload\",\"url\":\"https://example.com/package.msi\",\"fileSize\":10485760,\"incognito\":true,\"windowBounds\":{\"left\":100,\"top\":100,\"width\":1920,\"height\":1080}}";
+
+        var response = await router.RouteMessageAsync(requestJson);
+        var json = JsonSerializer.Serialize(response);
+
+        json.Should().Contain("\"success\":true");
+        json.Should().Contain("\"downloadId\":");
+
+        var all = await _db.GetAllDownloadsAsync();
+        all.Should().ContainSingle(d => d.Url == "https://example.com/package.msi");
+    }
+
+    [Fact]
+    public void GrantForegroundToSwiftGet_ExecutesWithoutException()
+    {
+        var act = () => NativeMessageRouter.GrantForegroundToSwiftGet();
+        act.Should().NotThrow();
+    }
 }
 

@@ -71,7 +71,7 @@ public sealed class TurboDownloadScheduler : IDownloadScheduler
 
         _capacityEstimator = capacityEstimator ?? new CapacityEstimator();
         _concurrencyController = concurrencyController ?? new AdaptiveConcurrencyController();
-        _rangeScheduler = new DynamicRangeScheduler(item.TotalBytes, targetChunks: Math.Max(32, _concurrencyController.TargetConnections * 4));
+        _rangeScheduler = new DynamicRangeScheduler(item.TotalBytes, targetChunks: Math.Max(8, _concurrencyController.TargetConnections));
         _diskWriter = new CoalescingAsyncDiskWriter(_sparseWriter);
 
         _downloadedBytes = item.DownloadedBytes;
@@ -81,6 +81,29 @@ public sealed class TurboDownloadScheduler : IDownloadScheduler
     {
         using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(ct, _cts.Token);
         var cancellationToken = linkedCts.Token;
+
+        // Restore existing segments if resuming a paused download
+        try
+        {
+            var existingSegments = await _db.GetSegmentsAsync(_item.Id, cancellationToken).ConfigureAwait(false);
+            if (existingSegments != null && existingSegments.Count > 0)
+            {
+                _rangeScheduler.RestoreFromSegments(existingSegments);
+                Interlocked.Exchange(ref _downloadedBytes, _rangeScheduler.CompletedBytes);
+            }
+            else if (_item.DownloadedBytes > 0)
+            {
+                Interlocked.Exchange(ref _downloadedBytes, _item.DownloadedBytes);
+            }
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to restore segments from database for {Id}", _item.Id);
+        }
 
         // Start background telemetry & controller loop
         var controllerTask = Task.Run(() => RunControllerLoopAsync(cancellationToken), CancellationToken.None);
@@ -96,8 +119,10 @@ public sealed class TurboDownloadScheduler : IDownloadScheduler
                 AdjustWorkerPool(cancellationToken);
                 await Task.Delay(50, cancellationToken).ConfigureAwait(false);
             }
+
+            cancellationToken.ThrowIfCancellationRequested();
         }
-        catch (OperationCanceledException) when (ct.IsCancellationRequested)
+        catch (OperationCanceledException)
         {
             throw;
         }
@@ -116,7 +141,7 @@ public sealed class TurboDownloadScheduler : IDownloadScheduler
 
             // Flush disk pipeline and persist final checkpoint
             await _diskWriter.DisposeAsync().ConfigureAwait(false);
-            Interlocked.Exchange(ref _downloadedBytes, _diskWriter.TotalBytesWritten);
+            Interlocked.Exchange(ref _downloadedBytes, _rangeScheduler.CompletedBytes);
             await CheckpointAsync(CancellationToken.None).ConfigureAwait(false);
         }
     }
@@ -134,7 +159,7 @@ public sealed class TurboDownloadScheduler : IDownloadScheduler
 
     private async Task RunWorkerLoopAsync(string workerId, CancellationToken ct)
     {
-        const int bufferSize = 64 * 1024;
+        const int bufferSize = 256 * 1024;
         var buffer = ArrayPool<byte>.Shared.Rent(bufferSize);
 
         try
@@ -156,7 +181,24 @@ public sealed class TurboDownloadScheduler : IDownloadScheduler
                     continue;
                 }
 
-                await DownloadRangeAsync(range, workerId, buffer, ct).ConfigureAwait(false);
+                try
+                {
+                    await DownloadRangeAsync(range, workerId, buffer, ct).ConfigureAwait(false);
+                }
+                catch (OperationCanceledException) when (!ct.IsCancellationRequested)
+                {
+                    // Read timeout / stall watchdog triggered on this range
+                    _logger.LogWarning("Worker {WorkerId} stalled (30s read timeout) on range {RangeId} [{CurrentOffset}-{EndOffset}]. Releasing range for retry.",
+                        workerId, range.Id, range.CurrentOffset, range.EndOffset);
+                    _rangeScheduler.ReleaseWork(range);
+                    await Task.Delay(500, ct).ConfigureAwait(false);
+                }
+                catch (Exception ex) when (!ct.IsCancellationRequested)
+                {
+                    _logger.LogWarning(ex, "Worker {WorkerId} failed downloading range {RangeId}. Releasing range for retry.", workerId, range.Id);
+                    _rangeScheduler.ReleaseWork(range);
+                    await Task.Delay(250, ct).ConfigureAwait(false);
+                }
             }
         }
         catch (OperationCanceledException) { }
@@ -173,7 +215,14 @@ public sealed class TurboDownloadScheduler : IDownloadScheduler
 
     private async Task DownloadRangeAsync(DynamicRange range, string workerId, byte[] buffer, CancellationToken ct)
     {
-        var req = new HttpRequestMessage(HttpMethod.Get, _item.FinalUrl);
+        var req = new HttpRequestMessage(HttpMethod.Get, _item.FinalUrl)
+        {
+            Version = HttpVersion.Version11,
+            VersionPolicy = HttpVersionPolicy.RequestVersionExact
+        };
+
+        req.Headers.TryAddWithoutValidation("Accept-Encoding", "identity");
+
         if (_item.SupportsRanges && range.EndOffset >= range.CurrentOffset)
         {
             req.Headers.Range = new RangeHeaderValue(range.CurrentOffset, range.EndOffset);
@@ -198,6 +247,7 @@ public sealed class TurboDownloadScheduler : IDownloadScheduler
             if (response.Headers.RetryAfter?.Delta != null) retryAfter = response.Headers.RetryAfter.Delta;
             _concurrencyController.ReportThrottled(retryAfter);
             _capacityEstimator.RecordSample(0, TimeSpan.FromMilliseconds(100), rttSw.Elapsed, _activeWorkerTasks.Count, serverThrottled: true);
+            _rangeScheduler.ReleaseWork(range);
             return;
         }
 
@@ -210,12 +260,16 @@ public sealed class TurboDownloadScheduler : IDownloadScheduler
         var speedSw = Stopwatch.StartNew();
         long bytesInThisRange = 0;
 
+        using var readCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+
         while (range.CurrentOffset <= range.EndOffset && !ct.IsCancellationRequested)
         {
             var maxToRead = (int)Math.Min(buffer.Length, range.EndOffset - range.CurrentOffset + 1);
             if (maxToRead <= 0) break;
 
-            var bytesRead = await stream.ReadAsync(buffer.AsMemory(0, maxToRead), ct).ConfigureAwait(false);
+            // 30-second stall watchdog on stream read
+            readCts.CancelAfter(TimeSpan.FromSeconds(30));
+            var bytesRead = await stream.ReadAsync(buffer.AsMemory(0, maxToRead), readCts.Token).ConfigureAwait(false);
             if (bytesRead <= 0) break;
 
             // Apply limiter if configured
@@ -237,6 +291,11 @@ public sealed class TurboDownloadScheduler : IDownloadScheduler
             var elapsedSec = speedSw.Elapsed.TotalSeconds;
             var instantSpeed = elapsedSec > 0 ? (bytesInThisRange / elapsedSec) : 0;
             _rangeScheduler.ReportProgress(range.Id, bytesRead, instantSpeed);
+        }
+
+        if (!range.IsComplete && !ct.IsCancellationRequested)
+        {
+            _rangeScheduler.ReleaseWork(range);
         }
     }
 

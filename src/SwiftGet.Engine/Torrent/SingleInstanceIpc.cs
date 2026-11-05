@@ -25,6 +25,18 @@ public sealed record SingleInstanceMessage
     public string? Referrer { get; init; }
     public string? UserAgent { get; init; }
     public string[]? RawArgs { get; init; }
+    public int? WindowLeft { get; init; }
+    public int? WindowTop { get; init; }
+    public int? WindowWidth { get; init; }
+    public int? WindowHeight { get; init; }
+    public bool Incognito { get; init; }
+    public long TotalBytes { get; init; }
+    public string? EventId { get; init; }
+    public DateTime? CreatedAtUtc { get; init; }
+    public int TabId { get; init; } = -1;
+    public string? Initiator { get; init; }
+    public bool UserGesture { get; init; } = true;
+    public bool ExplicitUserAction { get; init; }
 }
 
 public interface ISingleInstanceIpc : IAsyncDisposable

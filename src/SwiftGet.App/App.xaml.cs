@@ -32,6 +32,7 @@ using SwiftGet.Media.Recorder;
 using SwiftGet.Media.Sidecars;
 using SwiftGet.Engine.Updating;
 using SwiftGet.Engine.Integration;
+using SwiftGet.App.Services;
 
 using SwiftGet.Engine.Torrent;
 using SwiftGet.Engine.Cli;
@@ -47,6 +48,7 @@ public sealed partial class App : Application
     public static IServiceProvider Services => AppHost.Services;
     public static CliCommand? PendingLaunchCommand { get; set; }
     public static string AppDataDirectory { get; private set; } = string.Empty;
+    public static int StartupCleanedItemsCount { get; set; }
 
     public App()
     {
@@ -138,7 +140,7 @@ public sealed partial class App : Application
                 services.AddSingleton<IFileNameResolver, FileNameResolver>();
 
                 // Networking & Engine
-                services.AddSingleton<HttpClient>();
+                services.AddSingleton<HttpClient>(sp => new HttpClient(SwiftGet.Engine.Turbo.TurboSocketFactory.CreateTunableHandler(), disposeHandler: true));
                 services.AddSingleton<HttpProbeService>();
                 services.AddSingleton<DownloadCoordinator>();
                 services.AddSingleton<ICategoryManager, CategoryManager>();
@@ -154,7 +156,9 @@ public sealed partial class App : Application
                 services.AddSingleton<IExportService, ExportService>();
                 services.AddSingleton<IImportService, ImportService>();
 
-                // M6 Services: Loopback Server & Token Manager
+                // M6 Services: Loopback Server & Token Manager & Capture Gatekeeper
+                services.AddSingleton<CaptureGatekeeper>();
+                services.AddSingleton<CaptureStateMigrationService>();
                 services.AddSingleton<LoopbackTokenManager>();
                 services.AddSingleton(sp => new LoopbackServer(
                     sp.GetRequiredService<LoopbackTokenManager>(),
@@ -162,7 +166,8 @@ public sealed partial class App : Application
                     sp.GetRequiredService<ICategoryManager>(),
                     sp.GetRequiredService<IFileNameResolver>(),
                     port: PendingLaunchCommand?.CustomLoopbackPort ?? LoopbackServer.DefaultPort,
-                    logger: sp.GetService<Microsoft.Extensions.Logging.ILogger<LoopbackServer>>()));
+                    logger: sp.GetService<Microsoft.Extensions.Logging.ILogger<LoopbackServer>>(),
+                    gatekeeper: sp.GetRequiredService<CaptureGatekeeper>()));
 
                 // M7 Services: Media Sidecars, Extractor, Stream Recorder
                 services.AddSingleton<SidecarManager>();
@@ -179,6 +184,7 @@ public sealed partial class App : Application
 
                 // Browser Integration Service
                 services.AddSingleton<IBrowserIntegrationService, BrowserIntegrationService>();
+                services.AddSingleton<ProcessPriorityService>();
 
                 // T1 & T2 BitTorrent Services
                 services.AddSingleton<ITorrentEngine, MonoTorrentEngine>();
@@ -227,6 +233,18 @@ public sealed partial class App : Application
             var categories = Services.GetRequiredService<ICategoryManager>();
             categories.InitializeAsync().GetAwaiter().GetResult();
             Log.Information("Categories initialized successfully.");
+
+            // Run startup transient-state purge & one-time phantom capture migration
+            CaptureGatekeeper.ProcessStartupUtc = DateTime.UtcNow;
+            CaptureGatekeeper.CustomSettingsDirectory = AppDataDirectory;
+            var migrationService = Services.GetRequiredService<CaptureStateMigrationService>();
+            var migrationResult = migrationService.RunStartupCleanupAsync(AppDataDirectory).GetAwaiter().GetResult();
+            if (migrationResult.CleanedCount > 0)
+            {
+                Log.Information("[CaptureMigration] Cleaned up {Count} stale/phantom capture items (OneTimeMigration={WasOneTime}).",
+                    migrationResult.CleanedCount, migrationResult.WasOneTimeMigrationRun);
+                StartupCleanedItemsCount = migrationResult.CleanedCount;
+            }
 
             Log.Information("Initializing torrent engine...");
             var torrentEngine = Services.GetRequiredService<ITorrentEngine>();
@@ -313,6 +331,7 @@ public sealed partial class App : Application
         // Start Single-Instance Named Pipe IPC Server for OS protocol & file handoff
         try
         {
+            _ = Services.GetService<ProcessPriorityService>();
             var ipc = Services.GetRequiredService<ISingleInstanceIpc>();
             ipc.MessageReceived += (s, msg) =>
             {
@@ -320,7 +339,7 @@ public sealed partial class App : Application
                 {
                     if (_currentWindow is MainWindow mw)
                     {
-                        mw.BringToForeground();
+                        mw.BringToForeground(msg.WindowLeft, msg.WindowTop, msg.WindowWidth, msg.WindowHeight);
 
                         if (msg.Action == "AddTorrent")
                         {
@@ -334,6 +353,26 @@ public sealed partial class App : Application
                             }
                             else
                             {
+                                var gatekeeper = AppHost.Services.GetRequiredService<CaptureGatekeeper>();
+                                var gateResult = gatekeeper.EvaluateCapture(
+                                    url: msg.Argument,
+                                    fileName: msg.FileName,
+                                    eventId: msg.EventId ?? msg.CorrelationId,
+                                    createdAtUtc: msg.CreatedAtUtc,
+                                    source: "ipc",
+                                    tabId: msg.TabId,
+                                    initiator: msg.Initiator,
+                                    userGesture: msg.UserGesture,
+                                    fileSizeBytes: msg.TotalBytes > 0 ? msg.TotalBytes : null,
+                                    enforceStartupTimeGuard: msg.CreatedAtUtc.HasValue,
+                                    isExplicitUserAction: msg.ExplicitUserAction);
+
+                                if (!gateResult.Allowed)
+                                {
+                                    Log.Information("[CaptureGatekeeper] Dropped IPC capture for '{Url}': {Reason}", msg.Argument, gateResult.Reason);
+                                    return;
+                                }
+
                                 var resolver = AppHost.Services.GetRequiredService<IFileNameResolver>();
                                 var fileName = !string.IsNullOrWhiteSpace(msg.FileName)
                                     ? msg.FileName
@@ -342,6 +381,12 @@ public sealed partial class App : Application
                                 await mw.ShowDownloadFileInfoDialogAsync(new SwiftGet.Engine.Server.InterceptDownloadRequest
                                 {
                                     DownloadId = msg.DownloadId,
+                                    EventId = gateResult.EventId,
+                                    CreatedAtUtc = msg.CreatedAtUtc,
+                                    TabId = msg.TabId,
+                                    Initiator = msg.Initiator,
+                                    UserGesture = msg.UserGesture,
+                                    ExplicitUserAction = msg.ExplicitUserAction,
                                     Url = msg.Argument,
                                     FileName = fileName,
                                     DestinationPath = msg.SaveDirectory,
@@ -349,9 +394,18 @@ public sealed partial class App : Application
                                     Referrer = msg.Referrer,
                                     UserAgent = msg.UserAgent,
                                     StartImmediately = msg.StartImmediately,
-                                    ShowDialog = true
+                                    ShowDialog = true,
+                                    WindowLeft = msg.WindowLeft,
+                                    WindowTop = msg.WindowTop,
+                                    WindowWidth = msg.WindowWidth,
+                                    WindowHeight = msg.WindowHeight,
+                                    TotalBytes = msg.TotalBytes
                                 });
                             }
+                        }
+                        else if (msg.Action == "Activate")
+                        {
+                            mw.BringToForeground(msg.WindowLeft, msg.WindowTop, msg.WindowWidth, msg.WindowHeight);
                         }
                         else
                         {

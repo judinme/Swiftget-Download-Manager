@@ -38,8 +38,16 @@ public sealed partial class DownloadCompleteDialog : ContentDialog
         {
             try
             {
-                UrlTextBox.Select(0, 0);
-                SavePathTextBox.Select(0, 0);
+                OpenButton?.Focus(FocusState.Programmatic);
+                DispatcherQueue?.TryEnqueue(Microsoft.UI.Dispatching.DispatcherQueuePriority.Low, () =>
+                {
+                    try
+                    {
+                        UrlTextBox.Select(0, 0);
+                        SavePathTextBox.Select(0, 0);
+                    }
+                    catch { }
+                });
             }
             catch { }
         };

@@ -348,8 +348,7 @@ public sealed class SidecarManager
 
             if (!argsList.Any(a => a.Equals("--cache-dir", StringComparison.OrdinalIgnoreCase) || a.Equals("--no-cache-dir", StringComparison.OrdinalIgnoreCase)))
             {
-                argsList.Insert(0, safeCache);
-                argsList.Insert(0, "--cache-dir");
+                argsList.Insert(0, "--no-cache-dir");
             }
             if (!argsList.Any(a => a.Equals("--no-plugin-dirs", StringComparison.OrdinalIgnoreCase)))
             {
@@ -430,11 +429,42 @@ public sealed class SidecarManager
             {
                 if (!process.HasExited)
                 {
-                    process.Kill(true);
+                    KillProcessTree(process.Id);
                 }
             }
             catch { }
             throw;
+        }
+    }
+
+    /// <summary>
+    /// Forcefully terminates a process and all of its descendant child processes (e.g. ffmpeg spawned by yt-dlp).
+    /// </summary>
+    public static void KillProcessTree(int processId)
+    {
+        if (processId <= 0) return;
+
+        try
+        {
+            using var proc = Process.GetProcessById(processId);
+            proc.Kill(entireProcessTree: true);
+        }
+        catch { }
+
+        if (OperatingSystem.IsWindows())
+        {
+            try
+            {
+                using var taskkill = Process.Start(new ProcessStartInfo
+                {
+                    FileName = "taskkill",
+                    Arguments = $"/F /T /PID {processId}",
+                    CreateNoWindow = true,
+                    UseShellExecute = false
+                });
+                taskkill?.WaitForExit(1000);
+            }
+            catch { }
         }
     }
 

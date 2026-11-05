@@ -137,7 +137,7 @@ public class DownloadCoordinator
 
                 // Priority invariant: Only update filename from probe if the current name is a placeholder/generic AND the probe returned a real extension,
                 // OR if a genuine Content-Disposition header with a real extension was returned. Never replace a rich name with an extensionless path-slug!
-                if (!item.IsFileNameUserLocked &&
+                if ((!item.IsFileNameUserLocked || isExtensionlessOrGeneric) &&
                     ((isPlaceholder && (suggestedHasRealExt || !string.IsNullOrWhiteSpace(probeResult.ContentDisposition))) ||
                      (isExtensionlessOrGeneric && suggestedHasRealExt) ||
                      (!string.IsNullOrWhiteSpace(probeResult.ContentDisposition) && suggestedHasRealExt && isExtensionlessOrGeneric)))
@@ -233,7 +233,7 @@ public class DownloadCoordinator
                         // 1. Name is NOT locked by the user.
                         // 2. The resolution came from a genuine Content-Disposition header with a valid filename, OR fixed a generic/extensionless filename with a real extension.
                         // 3. Crucially: NEVER replace a name that has a valid extension with an extensionless or generic name!
-                        if (!item.IsFileNameUserLocked &&
+                        if ((!item.IsFileNameUserLocked || isCurrentGeneric) &&
                             resolved.Source == FileNameSource.ContentDisposition &&
                             !string.IsNullOrWhiteSpace(resolved.FileName) &&
                             (isCurrentGeneric || isNewReal) &&
@@ -302,7 +302,7 @@ public class DownloadCoordinator
 
                     string targetFileName = item.FileName;
 
-                    if (!item.IsFileNameUserLocked && !string.IsNullOrWhiteSpace(liveGetResolvedName) && !liveGetResolvedName.Equals(item.FileName, StringComparison.OrdinalIgnoreCase))
+                    if ((!item.IsFileNameUserLocked || isCurrentGeneric) && !string.IsNullOrWhiteSpace(liveGetResolvedName) && !liveGetResolvedName.Equals(item.FileName, StringComparison.OrdinalIgnoreCase))
                     {
                         var resolvedExt = _fileNameResolver.GetCompoundExtension(liveGetResolvedName);
                         var resolvedHasRealExt = !string.IsNullOrEmpty(resolvedExt) && !_fileNameResolver.IsGenericOrScriptExtension(resolvedExt);

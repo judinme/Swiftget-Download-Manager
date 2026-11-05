@@ -2,11 +2,19 @@
     x:Class="SwiftGet.App.Views.DownloadCompleteDialog"
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-    Title="Download complete"
     CloseButtonText="Close"
-    Width="580">
+    Width="480">
 
-    <Grid RowSpacing="12" Margin="0,6,0,0">
+    <ContentDialog.TitleTemplate>
+        <DataTemplate>
+            <StackPanel Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+                <FontIcon Glyph="&#xE73E;" FontSize="18" Foreground="{ThemeResource SystemFillColorSuccessBrush}" VerticalAlignment="Center" />
+                <TextBlock Text="Download complete" FontWeight="SemiBold" FontSize="16" VerticalAlignment="Center" />
+            </StackPanel>
+        </DataTemplate>
+    </ContentDialog.TitleTemplate>
+
+    <Grid RowSpacing="10" Margin="0,4,0,0">
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto" />
             <RowDefinition Height="Auto" />
@@ -57,6 +65,7 @@
                        Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
             <TextBox x:Name="UrlTextBox" IsReadOnly="True"
                      TextWrapping="NoWrap"
+                     ToolTipService.ToolTip="{x:Bind DownloadUrl, Mode=OneWay}"
                      AutomationProperties.Name="Downloaded Address" />
         </StackPanel>
 
@@ -67,6 +76,7 @@
                        Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
             <TextBox x:Name="SavePathTextBox" IsReadOnly="True"
                      TextWrapping="NoWrap"
+                     ToolTipService.ToolTip="{x:Bind SavePath, Mode=OneWay}"
                      AutomationProperties.Name="Saved File Path" />
         </StackPanel>
 
@@ -79,7 +89,7 @@
         <!-- Action Buttons Row (right-aligned, MinWidth, no wrapping) -->
         <Grid Grid.Row="5" Margin="0,6,0,0">
             <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Spacing="8">
-                <Button Content="Open" Click="Open_Click"
+                <Button x:Name="OpenButton" Content="Open" Click="Open_Click"
                         Style="{ThemeResource AccentButtonStyle}"
                         MinWidth="85"
                         AutomationProperties.Name="Open downloaded file" />

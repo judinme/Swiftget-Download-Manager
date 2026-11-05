@@ -14,7 +14,12 @@
     "cookies",
     "contextMenus",
     "storage",
-    "nativeMessaging"
+    "nativeMessaging",
+    "alarms",
+    "webRequest",
+    "webRequestBlocking",
+    "tabs",
+    "notifications"
   ],
   "host_permissions": [
     "<all_urls>"

@@ -118,4 +118,110 @@ public class DownloadDialogViewModelTests
         segment.FillRatio.Should().Be(1.0);
         segment.Status.Should().Be("Complete");
     }
+
+    [Fact]
+    public async Task TogglePauseCommand_InvokesHandlers_AndUpdatesButtonText()
+    {
+        // Arrange
+        var item = new DownloadItemViewModel
+        {
+            Id = Guid.NewGuid(),
+            FileName = "archive.zip",
+            Status = DownloadStatus.Downloading
+        };
+
+        bool pauseInvoked = false;
+        bool resumeInvoked = false;
+
+        var dialogVm = new DownloadDialogViewModel(item)
+        {
+            PauseHandler = (vm) => pauseInvoked = true,
+            ResumeHandler = (vm) =>
+            {
+                resumeInvoked = true;
+                return System.Threading.Tasks.Task.CompletedTask;
+            }
+        };
+
+        dialogVm.PauseResumeButtonText.Should().Be("Pause");
+
+        // Act 1: Pause
+        await dialogVm.TogglePauseCommand.ExecuteAsync(null);
+
+        // Assert 1: Paused
+        pauseInvoked.Should().BeTrue();
+        item.Status.Should().Be(DownloadStatus.Paused);
+        dialogVm.PauseResumeButtonText.Should().Be("Resume");
+
+        // Act 2: Resume
+        await dialogVm.TogglePauseCommand.ExecuteAsync(null);
+
+        // Assert 2: Resumed
+        resumeInvoked.Should().BeTrue();
+        item.Status.Should().Be(DownloadStatus.Downloading);
+        dialogVm.PauseResumeButtonText.Should().Be("Pause");
+    }
+
+    [Fact]
+    public void CancelCommand_InvokesCancelHandler()
+    {
+        var item = new DownloadItemViewModel
+        {
+            Id = Guid.NewGuid(),
+            FileName = "archive.zip",
+            Status = DownloadStatus.Downloading
+        };
+
+        bool cancelInvoked = false;
+        var dialogVm = new DownloadDialogViewModel(item)
+        {
+            CancelHandler = (vm) => cancelInvoked = true
+        };
+
+        dialogVm.CancelCommand.Execute(null);
+
+        cancelInvoked.Should().BeTrue();
+    }
+
+    [Fact]
+    public void AppSettingsStore_RoundTripsDefaultsAndClamps()
+    {
+        var settings = new AppSettings
+        {
+            MaxConcurrentDownloads = 5,
+            ShowMediaProgressDialog = true,
+            DeletePartialFilesOnCancel = true,
+            MaxConnectionsPerDownload = 16
+        };
+
+        var tempPath = System.IO.Path.Combine(System.IO.Path.GetTempPath(), $"swiftget_test_settings_{Guid.NewGuid():N}.json");
+        try
+        {
+            AppSettingsStore.Save(settings, tempPath);
+            var loaded = AppSettingsStore.Load(tempPath);
+
+            loaded.MaxConcurrentDownloads.Should().Be(5);
+            loaded.ShowMediaProgressDialog.Should().BeTrue();
+            loaded.DeletePartialFilesOnCancel.Should().BeTrue();
+            loaded.MaxConnectionsPerDownload.Should().Be(16);
+        }
+        finally
+        {
+            try { if (System.IO.File.Exists(tempPath)) System.IO.File.Delete(tempPath); } catch { }
+        }
+    }
+
+    [Fact]
+    public void DownloadItemViewModel_CancelledState_SetsStatusTextAndGlyph()
+    {
+        var item = new DownloadItemViewModel
+        {
+            Id = Guid.NewGuid(),
+            FileName = "cancelled_file.iso",
+            Status = DownloadStatus.Cancelled
+        };
+
+        item.StatusText.Should().Be("Cancelled");
+        item.ResumePauseGlyph.Should().Be("\uE768"); // Resume icon available
+    }
 }

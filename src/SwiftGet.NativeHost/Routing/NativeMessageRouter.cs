@@ -1,7 +1,9 @@
 using System;
 using System.Collections.Concurrent;
+using System.Diagnostics;
 using System.IO;
 using System.Linq;
+using System.Runtime.InteropServices;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
@@ -9,6 +11,7 @@ using SwiftGet.Core;
 using SwiftGet.Core.Models;
 using SwiftGet.Core.Storage;
 using SwiftGet.Engine.Categories;
+using SwiftGet.Engine.Integration;
 using SwiftGet.Engine.IO;
 using SwiftGet.Engine.Security;
 using SwiftGet.Engine.Server;
@@ -18,25 +21,54 @@ namespace SwiftGet.NativeHost.Routing;
 
 public sealed class NativeMessageRouter
 {
+    [DllImport("user32.dll", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool AllowSetForegroundWindow(int dwProcessId);
+
+    private const int ASFW_ANY = -1;
+
+    public static void GrantForegroundToSwiftGet()
+    {
+        if (!OperatingSystem.IsWindows()) return;
+        try
+        {
+            var processes = Process.GetProcessesByName("SwiftGet.App");
+            if (processes.Length > 0)
+            {
+                foreach (var p in processes)
+                {
+                    try { AllowSetForegroundWindow(p.Id); } catch { }
+                }
+            }
+            else
+            {
+                AllowSetForegroundWindow(ASFW_ANY);
+            }
+        }
+        catch { }
+    }
     private static readonly ConcurrentDictionary<string, (string DownloadId, DateTime Timestamp)> _correlationCache = new();
     private readonly ISwiftGetDatabase? _db;
     private readonly ICategoryManager? _categoryManager;
     private readonly LoopbackTokenManager _tokenManager;
     private readonly ISingleInstanceIpc? _ipc;
     private readonly SwiftGet.Core.IO.IFileNameResolver _fileNameResolver;
+    private readonly CaptureGatekeeper _gatekeeper;
 
     public NativeMessageRouter(
         ISwiftGetDatabase? db = null,
         ICategoryManager? categoryManager = null,
         LoopbackTokenManager? tokenManager = null,
         ISingleInstanceIpc? ipc = null,
-        SwiftGet.Core.IO.IFileNameResolver? fileNameResolver = null)
+        SwiftGet.Core.IO.IFileNameResolver? fileNameResolver = null,
+        CaptureGatekeeper? gatekeeper = null)
     {
         _db = db;
         _categoryManager = categoryManager;
         _tokenManager = tokenManager ?? new LoopbackTokenManager();
         _ipc = ipc;
         _fileNameResolver = fileNameResolver ?? new SwiftGet.Core.IO.FileNameResolver();
+        _gatekeeper = gatekeeper ?? new CaptureGatekeeper();
     }
 
     public static bool ValidateOrigin(string? origin, string[]? allowedOrigins = null)
@@ -95,6 +127,7 @@ public sealed class NativeMessageRouter
             {
                 action = "status",
                 status = "running",
+                appRunning = IsSwiftGetAppProcessRunning(),
                 version = "1.1.0",
                 torrentSupported = true,
                 authToken = _tokenManager.GetOrCreateToken()
@@ -156,30 +189,28 @@ public sealed class NativeMessageRouter
         var rawName = parsed!.DisplayName ?? $"Torrent_{parsed.InfoHash[..8]}";
         var name = FileNameSanitizer.Sanitize(rawName, $"Torrent_{parsed.InfoHash[..8]}");
 
+        // Grant foreground window permission so SwiftGet can reliably pop up in front
+        GrantForegroundToSwiftGet();
+
         // 1. Attempt forwarding to running SwiftGet app instance via IPC
         var forwarded = false;
+        var magnetMsg = new SingleInstanceMessage
+        {
+            Action = "AddTorrent",
+            Argument = uri,
+            SaveDirectory = saveDir,
+            StartImmediately = startImmediately,
+            Silent = silent
+        };
+
         if (_ipc != null)
         {
-            forwarded = await _ipc.TryForwardToRunningInstanceAsync(new SingleInstanceMessage
-            {
-                Action = "AddTorrent",
-                Argument = uri,
-                SaveDirectory = saveDir,
-                StartImmediately = startImmediately,
-                Silent = silent
-            }, timeoutMs: 1500, ct).ConfigureAwait(false);
+            forwarded = await _ipc.TryForwardToRunningInstanceAsync(magnetMsg, timeoutMs: 1500, ct).ConfigureAwait(false);
         }
         else if (!IsTestEnvironment())
         {
             var ipc = new SingleInstanceIpc();
-            forwarded = await ipc.TryForwardToRunningInstanceAsync(new SingleInstanceMessage
-            {
-                Action = "AddTorrent",
-                Argument = uri,
-                SaveDirectory = saveDir,
-                StartImmediately = startImmediately,
-                Silent = silent
-            }, timeoutMs: 1500, ct).ConfigureAwait(false);
+            forwarded = await ipc.TryForwardToRunningInstanceAsync(magnetMsg, timeoutMs: 1500, ct).ConfigureAwait(false);
         }
 
         // 2. If app wasn't running, save directly to database
@@ -341,30 +372,28 @@ public sealed class NativeMessageRouter
             catch { }
         }
 
+        // Grant foreground window permission so SwiftGet can reliably pop up in front
+        GrantForegroundToSwiftGet();
+
         // 2. Attempt forwarding to running SwiftGet app instance via IPC
         var forwarded = false;
+        var torrentMsg = new SingleInstanceMessage
+        {
+            Action = "AddTorrent",
+            Argument = forwardArgument,
+            SaveDirectory = saveDir,
+            StartImmediately = startImmediately,
+            Silent = silent
+        };
+
         if (_ipc != null)
         {
-            forwarded = await _ipc.TryForwardToRunningInstanceAsync(new SingleInstanceMessage
-            {
-                Action = "AddTorrent",
-                Argument = forwardArgument,
-                SaveDirectory = saveDir,
-                StartImmediately = startImmediately,
-                Silent = silent
-            }, timeoutMs: 1500, ct).ConfigureAwait(false);
+            forwarded = await _ipc.TryForwardToRunningInstanceAsync(torrentMsg, timeoutMs: 1500, ct).ConfigureAwait(false);
         }
         else if (!IsTestEnvironment())
         {
             var ipc = new SingleInstanceIpc();
-            forwarded = await ipc.TryForwardToRunningInstanceAsync(new SingleInstanceMessage
-            {
-                Action = "AddTorrent",
-                Argument = forwardArgument,
-                SaveDirectory = saveDir,
-                StartImmediately = startImmediately,
-                Silent = silent
-            }, timeoutMs: 1500, ct).ConfigureAwait(false);
+            forwarded = await ipc.TryForwardToRunningInstanceAsync(torrentMsg, timeoutMs: 1500, ct).ConfigureAwait(false);
         }
 
         var jobId = Guid.NewGuid().ToString("N");
@@ -444,6 +473,14 @@ public sealed class NativeMessageRouter
         if (root.TryGetProperty("correlationId", out var corrProp) && !string.IsNullOrWhiteSpace(corrProp.GetString()))
         {
             correlationId = corrProp.GetString();
+        }
+        else if (root.TryGetProperty("eventId", out var evtProp) && !string.IsNullOrWhiteSpace(evtProp.GetString()))
+        {
+            correlationId = evtProp.GetString();
+        }
+
+        if (!string.IsNullOrWhiteSpace(correlationId))
+        {
             var now = DateTime.UtcNow;
             foreach (var kvp in _correlationCache)
             {
@@ -459,6 +496,8 @@ public sealed class NativeMessageRouter
                 {
                     action = "interceptDownload",
                     success = true,
+                    ack = true,
+                    eventId = correlationId,
                     downloadId = existing.DownloadId,
                     deduplicated = true,
                     message = "Duplicate request suppressed by correlationId."
@@ -466,10 +505,60 @@ public sealed class NativeMessageRouter
             }
         }
 
+        DateTime? createdAtUtc = null;
+        if (root.TryGetProperty("createdAt", out var caProp) && caProp.ValueKind == JsonValueKind.String)
+        {
+            if (DateTime.TryParse(caProp.GetString(), null, System.Globalization.DateTimeStyles.RoundtripKind, out var parsedDt))
+            {
+                createdAtUtc = parsedDt.ToUniversalTime();
+            }
+        }
+        else if (root.TryGetProperty("timestamp", out var tsProp) && tsProp.ValueKind == JsonValueKind.Number && tsProp.TryGetInt64(out var tsMs))
+        {
+            createdAtUtc = DateTimeOffset.FromUnixTimeMilliseconds(tsMs).UtcDateTime;
+        }
+
+        int tabId = root.TryGetProperty("tabId", out var tabProp) && tabProp.TryGetInt32(out var tVal) ? tVal : -1;
+        string? initiator = root.TryGetProperty("initiator", out var initProp) ? initProp.GetString() : null;
+        bool userGesture = !root.TryGetProperty("userGesture", out var ugProp) || (ugProp.ValueKind == JsonValueKind.True || (ugProp.ValueKind != JsonValueKind.False));
+        string? mimeType = root.TryGetProperty("mimeType", out var mimeProp) ? mimeProp.GetString() : null;
+        long? fileSizeOpt = root.TryGetProperty("fileSize", out var fsOptProp) && fsOptProp.TryGetInt64(out var fsOptVal) && fsOptVal > 0 ? fsOptVal : null;
+        bool isExplicitUserAction = root.TryGetProperty("explicitUserAction", out var expProp) && expProp.ValueKind == JsonValueKind.True;
+
         var rawFileName = root.TryGetProperty("fileName", out var fnProp) ? fnProp.GetString() : null;
         if (string.IsNullOrWhiteSpace(rawFileName))
         {
             rawFileName = _fileNameResolver.ResolveInitialCandidate(url);
+        }
+
+        // Sanitize YouTube Mix/Radio parameters if media URL
+        url = CaptureGatekeeper.SanitizeMediaUrl(url);
+
+        var gateResult = _gatekeeper.EvaluateCapture(
+            url: url,
+            fileName: rawFileName,
+            eventId: correlationId,
+            createdAtUtc: createdAtUtc,
+            source: "native-host",
+            tabId: tabId,
+            initiator: initiator,
+            userGesture: userGesture,
+            fileSizeBytes: fileSizeOpt,
+            mimeType: mimeType,
+            isExplicitUserAction: isExplicitUserAction);
+
+        if (!gateResult.Allowed)
+        {
+            return new
+            {
+                action = "interceptDownload",
+                success = false,
+                ack = true,
+                rejected = true,
+                eventId = gateResult.EventId,
+                reason = gateResult.Reason,
+                message = $"Capture rejected: {gateResult.Reason}"
+            };
         }
 
         var downloadId = Guid.NewGuid().ToString("N");
@@ -492,10 +581,13 @@ public sealed class NativeMessageRouter
         var userAgent = root.TryGetProperty("userAgent", out var uaProp) ? uaProp.GetString() : null;
 
         string? destPath = null;
-        if (_db != null && _categoryManager != null)
+        string categoryId = isTorrent ? "Torrents" : (isMedia ? "video" : "all");
+        string queueId = "default";
+
+        if (_categoryManager != null)
         {
             var category = _categoryManager.ResolveCategory(fileName);
-            var categoryId = isTorrent ? "Torrents" : (isMedia ? "video" : category.Id);
+            categoryId = isTorrent ? "Torrents" : (isMedia ? "video" : category.Id);
             if (root.TryGetProperty("categoryId", out var catProp) && !string.IsNullOrWhiteSpace(catProp.GetString()))
             {
                 var reqCatId = catProp.GetString()!;
@@ -508,8 +600,7 @@ public sealed class NativeMessageRouter
                 }
             }
 
-            var queueId = "default";
-            if (root.TryGetProperty("queueId", out var qProp) && !string.IsNullOrWhiteSpace(qProp.GetString()))
+            if (_db != null && root.TryGetProperty("queueId", out var qProp) && !string.IsNullOrWhiteSpace(qProp.GetString()))
             {
                 var reqQueueId = qProp.GetString()!;
                 var queues = await _db.GetAllQueuesAsync(ct).ConfigureAwait(false);
@@ -532,7 +623,80 @@ public sealed class NativeMessageRouter
 
             var targetDir = Environment.ExpandEnvironmentVariables(category.TargetDirectory);
             destPath = PathTraversalGuard.EnsureSafePath(targetDir, candidateName, fileName);
+        }
 
+        int? winLeft = null, winTop = null, winWidth = null, winHeight = null;
+        if (root.TryGetProperty("windowBounds", out var wbProp) && wbProp.ValueKind == JsonValueKind.Object)
+        {
+            if (wbProp.TryGetProperty("left", out var lProp) && lProp.TryGetInt32(out var lVal)) winLeft = lVal;
+            if (wbProp.TryGetProperty("top", out var tProp) && tProp.TryGetInt32(out var topVal)) winTop = topVal;
+            if (wbProp.TryGetProperty("width", out var wProp) && wProp.TryGetInt32(out var wVal)) winWidth = wVal;
+            if (wbProp.TryGetProperty("height", out var hProp) && hProp.TryGetInt32(out var hVal)) winHeight = hVal;
+        }
+        bool incognito = root.TryGetProperty("incognito", out var incogProp) && incogProp.GetBoolean();
+        long fileSize = root.TryGetProperty("fileSize", out var fsProp) && fsProp.TryGetInt64(out var fsVal) ? fsVal : 0;
+
+        // Grant foreground window permission so SwiftGet can reliably pop up in front
+        GrantForegroundToSwiftGet();
+
+        // 1. Attempt forwarding to running SwiftGet app instance via IPC
+        var forwarded = false;
+        var message = new SingleInstanceMessage
+        {
+            DownloadId = downloadId,
+            Action = "AddDownload",
+            Argument = url,
+            FileName = fileName,
+            SaveDirectory = destPath,
+            StartImmediately = true,
+            CorrelationId = gateResult.EventId,
+            EventId = gateResult.EventId,
+            CreatedAtUtc = createdAtUtc ?? DateTime.UtcNow,
+            TabId = tabId,
+            Initiator = initiator,
+            UserGesture = userGesture,
+            ExplicitUserAction = isExplicitUserAction,
+            JobKind = jobKind.ToString(),
+            Cookies = cookies,
+            Referrer = referrer,
+            UserAgent = userAgent,
+            WindowLeft = winLeft,
+            WindowTop = winTop,
+            WindowWidth = winWidth,
+            WindowHeight = winHeight,
+            Incognito = incognito,
+            TotalBytes = fileSize
+        };
+
+        if (_ipc != null)
+        {
+            forwarded = await _ipc.TryForwardToRunningInstanceAsync(message, timeoutMs: 1500, ct).ConfigureAwait(false);
+        }
+        else if (!IsTestEnvironment())
+        {
+            var ipc = new SingleInstanceIpc();
+            forwarded = await ipc.TryForwardToRunningInstanceAsync(message, timeoutMs: 1500, ct).ConfigureAwait(false);
+        }
+
+        // In production, NEVER pre-save unconfirmed HTTP/Media downloads to SQLite DB or spawn SwiftGet.App.exe
+        // when SwiftGet is not running! If SwiftGet is not running, return appNotRunning=true so the browser
+        // handles the download normally without queuing phantom captures.
+        if (!forwarded && !IsTestEnvironment())
+        {
+            return new
+            {
+                action = "interceptDownload",
+                success = false,
+                ack = true,
+                appNotRunning = true,
+                eventId = gateResult.EventId,
+                message = "SwiftGet is not running; browser should handle download normally."
+            };
+        }
+
+        // In unit tests (where SwiftGet.App UI is not running to confirm the dialog), persist to _db if provided
+        if (IsTestEnvironment() && _db != null && destPath != null)
+        {
             var item = new DownloadItem
             {
                 Id = downloadId,
@@ -548,62 +712,19 @@ public sealed class NativeMessageRouter
                 Status = DownloadStatus.Queued,
                 CreatedAtUtc = DateTime.UtcNow
             };
-
             await _db.SaveDownloadAsync(item, ct).ConfigureAwait(false);
-        }
-
-        // 1. Attempt forwarding to running SwiftGet app instance via IPC
-        var forwarded = false;
-        if (_ipc != null)
-        {
-            forwarded = await _ipc.TryForwardToRunningInstanceAsync(new SingleInstanceMessage
-            {
-                DownloadId = downloadId,
-                Action = "AddDownload",
-                Argument = url,
-                FileName = fileName,
-                SaveDirectory = destPath,
-                StartImmediately = true,
-                CorrelationId = correlationId,
-                JobKind = jobKind.ToString(),
-                Cookies = cookies,
-                Referrer = referrer,
-                UserAgent = userAgent
-            }, timeoutMs: 1500, ct).ConfigureAwait(false);
-        }
-        else if (!IsTestEnvironment())
-        {
-            var ipc = new SingleInstanceIpc();
-            forwarded = await ipc.TryForwardToRunningInstanceAsync(new SingleInstanceMessage
-            {
-                DownloadId = downloadId,
-                Action = "AddDownload",
-                Argument = url,
-                FileName = fileName,
-                SaveDirectory = destPath,
-                StartImmediately = true,
-                CorrelationId = correlationId,
-                JobKind = jobKind.ToString(),
-                Cookies = cookies,
-                Referrer = referrer,
-                UserAgent = userAgent
-            }, timeoutMs: 1500, ct).ConfigureAwait(false);
-        }
-
-        // 2. If app wasn't running, launch SwiftGet.App.exe
-        if (!forwarded)
-        {
-            TryLaunchSwiftGetApp(url);
         }
 
         return new
         {
             action = "interceptDownload",
             success = true,
+            ack = true,
+            eventId = gateResult.EventId,
             downloadId,
             fileName,
             forwardedToRunningInstance = forwarded,
-            message = "Download successfully enqueued to SwiftGet."
+            message = "Download forwarded to SwiftGet."
         };
     }
 
@@ -672,9 +793,25 @@ public sealed class NativeMessageRouter
         }
     }
 
+    private static bool IsSwiftGetAppProcessRunning()
+    {
+        if (IsTestEnvironment())
+        {
+            return true;
+        }
+        try
+        {
+            return Process.GetProcessesByName("SwiftGet.App").Length > 0;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
     private static bool IsTestEnvironment()
     {
-        return AppDomain.CurrentDomain.FriendlyName.Contains("testhost", StringComparison.OrdinalIgnoreCase) ||
+        return AppDomain.CurrentDomain.FriendlyName.Contains("test", StringComparison.OrdinalIgnoreCase) ||
                Environment.GetEnvironmentVariable("SWIFTGET_TEST_ENV") != null;
     }
 

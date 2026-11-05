@@ -314,19 +314,75 @@ public sealed class MediaDownloadViewModelTests : IAsyncDisposable
         vm.CanDownload.Should().BeTrue();
     }
 
+    [Fact]
+    public async Task ProbeMediaCommand_ConcurrentDoubleExecution_DeduplicatesWithoutTaskCanceledError()
+    {
+        await _db.InitializeAsync();
+        var stubExtractor = new StubMediaExtractor
+        {
+            SimulatedDelayMs = 150,
+            MetadataToReturn = new MediaMetadata
+            {
+                Url = "https://www.youtube.com/watch?v=IS9F8nxxPfw",
+                Title = "Concurrent Probe Test Video",
+                Formats =
+                [
+                    new MediaFormat
+                    {
+                        FormatId = "137",
+                        Extension = "mp4",
+                        Resolution = "1080p",
+                        HasVideo = true,
+                        HasAudio = true,
+                        FileSizeBytes = 25_000_000
+                    }
+                ]
+            }
+        };
+
+        var vm = new MediaDownloadViewModel(stubExtractor, _db, _categoryManager);
+
+        // Setting MediaUrl automatically triggers ProbeMediaAsync via OnMediaUrlChanged;
+        // immediately invoking ProbeMediaCommand.ExecuteAsync(null) simulates the exact race
+        // condition where MainWindow or UI binding triggers a second overlapping probe.
+        vm.MediaUrl = "https://www.youtube.com/watch?v=IS9F8nxxPfw";
+        var secondCall = vm.ProbeMediaCommand.ExecuteAsync(null);
+        var thirdCall = vm.ProbeMediaAsync();
+
+        await Task.WhenAll(secondCall, thirdCall);
+
+        stubExtractor.CallCount.Should().Be(1);
+        vm.HasError.Should().BeFalse();
+        vm.ErrorMessage.Should().BeEmpty();
+        vm.Formats.Should().HaveCount(1);
+        vm.ContentVisibility.Should().Be(Visibility.Visible);
+        vm.CanDownload.Should().BeTrue();
+        vm.StatusMessage.Should().Be("Discovered 1 formats.");
+    }
+
     private sealed class StubMediaExtractor : IMediaExtractor
     {
         public MediaMetadata? MetadataToReturn { get; set; }
         public Exception? ExceptionToThrow { get; set; }
+        public int SimulatedDelayMs { get; set; }
+        public int CallCount { get; private set; }
 
-        public Task<MediaMetadata> ExtractMetadataAsync(string mediaUrl, CancellationToken ct = default)
+        public async Task<MediaMetadata> ExtractMetadataAsync(string mediaUrl, CancellationToken ct = default)
         {
+            CallCount++;
+            if (SimulatedDelayMs > 0)
+            {
+                await Task.Delay(SimulatedDelayMs, ct);
+            }
+
+            ct.ThrowIfCancellationRequested();
+
             if (ExceptionToThrow != null)
             {
                 throw ExceptionToThrow;
             }
 
-            return Task.FromResult(MetadataToReturn ?? new MediaMetadata { Title = "Stub" });
+            return MetadataToReturn ?? new MediaMetadata { Title = "Stub" };
         }
     }
 }

@@ -74,6 +74,15 @@ public sealed partial class OptionsViewModel : ObservableObject
     private double _maxConnections = 8;
 
     [ObservableProperty]
+    private double _maxConcurrentDownloads = 3;
+
+    [ObservableProperty]
+    private bool _showProgressWindowForMediaDownloads;
+
+    [ObservableProperty]
+    private bool _deletePartialFilesOnCancel;
+
+    [ObservableProperty]
     private bool _isLimiterEnabled;
 
     [ObservableProperty]
@@ -196,6 +205,26 @@ public sealed partial class OptionsViewModel : ObservableObject
     [ObservableProperty]
     private string _browserStatusMessage = "Ready";
 
+    [ObservableProperty]
+    private bool _browserCaptureEnabled = true;
+
+    [ObservableProperty]
+    private int _browserCaptureModeIndex; // 0: Ask me, 1: Auto-start, 2: Off
+
+    [ObservableProperty]
+    private double _browserMinFileSizeKb = 256;
+
+    [ObservableProperty]
+    private string _browserIgnorePatternsText = string.Empty;
+
+    [ObservableProperty]
+    private string _browserAllowedExtensionsText = string.Empty;
+
+    [ObservableProperty]
+    private ObservableCollection<string> _captureLogLines = [];
+
+    private readonly CaptureGatekeeper? _captureGatekeeper;
+
     public OptionsViewModel(
         ISwiftGetDatabase db,
         ICategoryManager categoryManager,
@@ -203,7 +232,8 @@ public sealed partial class OptionsViewModel : ObservableObject
         ITorrentEngine? torrentEngine = null,
         ITorrentAssociationManager? associationManager = null,
         IUpdateService? updateService = null,
-        IBrowserIntegrationService? browserService = null)
+        IBrowserIntegrationService? browserService = null,
+        CaptureGatekeeper? captureGatekeeper = null)
     {
         _db = db ?? throw new ArgumentNullException(nameof(db));
         _categoryManager = categoryManager ?? throw new ArgumentNullException(nameof(categoryManager));
@@ -212,6 +242,13 @@ public sealed partial class OptionsViewModel : ObservableObject
         _associationManager = associationManager;
         _updateService = updateService;
         _browserService = browserService;
+        _captureGatekeeper = captureGatekeeper ?? new CaptureGatekeeper();
+
+        var appSettings = AppSettingsStore.Load();
+        _maxConcurrentDownloads = appSettings.MaxConcurrentDownloads;
+        _showProgressWindowForMediaDownloads = appSettings.ShowMediaProgressDialog;
+        _deletePartialFilesOnCancel = appSettings.DeletePartialFilesOnCancel;
+        _maxConnections = appSettings.MaxConnectionsPerDownload;
     }
 
     [RelayCommand]
@@ -309,6 +346,7 @@ public sealed partial class OptionsViewModel : ObservableObject
 
         RefreshAssociationStatus();
         RefreshBrowsers();
+        LoadBrowserCaptureSettings();
     }
 
     public void RefreshAssociationStatus()
@@ -533,7 +571,77 @@ public sealed partial class OptionsViewModel : ObservableObject
             await _torrentEngine.SetGlobalRateLimitsAsync(downBytes, upBytes).ConfigureAwait(false);
         }
 
+        SaveBrowserCaptureSettings();
+
+        var appSettings = AppSettingsStore.Load();
+        appSettings.MaxConcurrentDownloads = (int)Math.Clamp(MaxConcurrentDownloads, 1, 10);
+        appSettings.ShowMediaProgressDialog = ShowProgressWindowForMediaDownloads;
+        appSettings.DeletePartialFilesOnCancel = DeletePartialFilesOnCancel;
+        appSettings.MaxConnectionsPerDownload = (int)Math.Clamp(MaxConnections, 1, 32);
+        AppSettingsStore.Save(appSettings);
+
         StatusMessage = "Options saved successfully";
+    }
+
+    public void LoadBrowserCaptureSettings()
+    {
+        if (_captureGatekeeper == null) return;
+        var settings = _captureGatekeeper.LoadSettings();
+        BrowserCaptureEnabled = settings.CaptureEnabled;
+        BrowserCaptureModeIndex = (int)settings.Mode;
+        BrowserMinFileSizeKb = Math.Max(0, settings.MinFileSizeKb);
+        BrowserIgnorePatternsText = string.Join(Environment.NewLine, settings.IgnorePatterns);
+        BrowserAllowedExtensionsText = string.Join(" ", settings.AllowedExtensions);
+        RefreshCaptureLog();
+    }
+
+    public void SaveBrowserCaptureSettings()
+    {
+        if (_captureGatekeeper == null) return;
+        var ignoreList = BrowserIgnorePatternsText
+            .Split(['\r', '\n', ',', ';'], StringSplitOptions.RemoveEmptyEntries)
+            .Select(s => s.Trim())
+            .Where(s => !string.IsNullOrEmpty(s))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
+        var extList = BrowserAllowedExtensionsText
+            .Split([' ', '\r', '\n', ',', ';'], StringSplitOptions.RemoveEmptyEntries)
+            .Select(s => s.Trim().ToLowerInvariant())
+            .Where(s => !string.IsNullOrEmpty(s))
+            .Select(s => s.StartsWith('.') ? s : "." + s)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
+        var settings = new BrowserCaptureSettings
+        {
+            CaptureEnabled = BrowserCaptureEnabled,
+            Mode = (CaptureMode)Math.Clamp(BrowserCaptureModeIndex, 0, 2),
+            MinFileSizeKb = (int)Math.Max(0, BrowserMinFileSizeKb),
+            IgnorePatterns = ignoreList,
+            AllowedExtensions = extList
+        };
+        _captureGatekeeper.SaveSettings(settings);
+    }
+
+    [RelayCommand]
+    public void RefreshCaptureLog()
+    {
+        if (_captureGatekeeper == null) return;
+        CaptureLogLines.Clear();
+        foreach (var entry in _captureGatekeeper.GetRecentDecisions())
+        {
+            CaptureLogLines.Add(entry.DisplayLine);
+        }
+    }
+
+    [RelayCommand]
+    public void ClearCaptureState()
+    {
+        _captureGatekeeper?.ClearState();
+        CaptureLogLines.Clear();
+        BrowserStatusMessage = "Cleared pending capture state, deduplication cache, and capture decision log.";
+        StatusMessage = BrowserStatusMessage;
     }
 
     public void RefreshBrowsers()

@@ -12,6 +12,7 @@ using SwiftGet.Core.Models;
 using SwiftGet.Core.IO;
 using SwiftGet.Core.Storage;
 using SwiftGet.Engine.Categories;
+using SwiftGet.Engine.Integration;
 using SwiftGet.Engine.IO;
 using SwiftGet.Engine.Security;
 using SwiftGet.Engine.Torrent;
@@ -27,6 +28,7 @@ public sealed class LoopbackServer : IAsyncDisposable
     private readonly ISwiftGetDatabase? _db;
     private readonly ICategoryManager? _categoryManager;
     private readonly IFileNameResolver _fileNameResolver;
+    private readonly CaptureGatekeeper _gatekeeper;
     private readonly ILogger<LoopbackServer> _logger;
     private CancellationTokenSource? _cts;
     private Task? _listenTask;
@@ -43,12 +45,14 @@ public sealed class LoopbackServer : IAsyncDisposable
         ICategoryManager? categoryManager = null,
         IFileNameResolver? fileNameResolver = null,
         int port = DefaultPort,
-        ILogger<LoopbackServer>? logger = null)
+        ILogger<LoopbackServer>? logger = null,
+        CaptureGatekeeper? gatekeeper = null)
     {
         _tokenManager = tokenManager ?? throw new ArgumentNullException(nameof(tokenManager));
         _db = db;
         _categoryManager = categoryManager;
         _fileNameResolver = fileNameResolver ?? new SwiftGet.Core.IO.FileNameResolver();
+        _gatekeeper = gatekeeper ?? new CaptureGatekeeper();
         _logger = logger ?? NullLogger<LoopbackServer>.Instance;
         Port = port;
 
@@ -377,6 +381,39 @@ public sealed class LoopbackServer : IAsyncDisposable
             return;
         }
 
+        if (!isTorrent && !string.IsNullOrWhiteSpace(interceptReq.Url))
+        {
+            interceptReq.Url = CaptureGatekeeper.SanitizeMediaUrl(interceptReq.Url);
+            var gateResult = _gatekeeper.EvaluateCapture(
+                url: interceptReq.Url,
+                fileName: rawFileName,
+                eventId: interceptReq.EventId,
+                createdAtUtc: interceptReq.CreatedAtUtc,
+                source: "loopback",
+                tabId: interceptReq.TabId,
+                initiator: interceptReq.Initiator,
+                userGesture: interceptReq.UserGesture,
+                fileSizeBytes: interceptReq.TotalBytes > 0 ? interceptReq.TotalBytes : null,
+                mimeType: interceptReq.MimeType,
+                headers: interceptReq.Headers,
+                isExplicitUserAction: interceptReq.ExplicitUserAction);
+
+            if (!gateResult.Allowed)
+            {
+                await WriteJsonResponseAsync(
+                    response,
+                    new InterceptDownloadResponse
+                    {
+                        Success = false,
+                        Message = $"Capture rejected: {gateResult.Reason}"
+                    },
+                    HttpStatusCode.OK,
+                    ct).ConfigureAwait(false);
+                return;
+            }
+            interceptReq.EventId = gateResult.EventId;
+        }
+
         var downloadId = Guid.NewGuid().ToString("N");
         interceptReq.DownloadId = downloadId;
 
@@ -429,6 +466,8 @@ public sealed class LoopbackServer : IAsyncDisposable
             var destPath = PathTraversalGuard.EnsureSafePath(targetDir, candidateName, fileName);
             interceptReq.FileName = fileName;
             interceptReq.DestinationPath = destPath;
+            interceptReq.CategoryId = categoryId;
+            interceptReq.QueueId = queueId;
 
             var item = new DownloadItem
             {

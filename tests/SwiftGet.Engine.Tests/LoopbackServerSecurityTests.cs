@@ -73,7 +73,7 @@ public sealed class LoopbackServerSecurityTests
 
             var payload = new InterceptDownloadRequest
             {
-                Url = "http://127.0.0.1:8765/file.bin",
+                Url = "https://example.com/downloads/file.bin",
                 FileName = "../../Windows/StartUp/pwned.bat",
                 DestinationPath = @"C:\Windows\Temp\pwned.bat"
             };

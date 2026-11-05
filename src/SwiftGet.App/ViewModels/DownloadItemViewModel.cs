@@ -279,6 +279,7 @@ public sealed partial class DownloadItemViewModel : ObservableObject
         DownloadStatus.Paused => "Paused",
         DownloadStatus.Completed => "Complete",
         DownloadStatus.Failed => "Error",
+        DownloadStatus.Cancelled => "Cancelled",
         DownloadStatus.Queued => "Queued",
         _ => Status.ToString()
     };

@@ -10,7 +10,7 @@ Scope: user
 Installers:
   - Architecture: x64
     InstallerUrl: https://github.com/swiftget/swiftget/releases/download/v1.0.0/SwiftGet-1.0.0-x64.msi
-    InstallerSha256: 553b54053b1041802890f51d49adca2fa4c41d269a7d7a98bf628c01a5ccd5ed
+    InstallerSha256: 26dd108bb65efa02c9b33ae2e083e5019676d4a6819c2850f6193c997365e1e0
     ProductCode: '{4D3B03D2-6AC6-4999-9233-C613A5C98DF7}'
 ManifestType: installer
 ManifestVersion: 1.6.0

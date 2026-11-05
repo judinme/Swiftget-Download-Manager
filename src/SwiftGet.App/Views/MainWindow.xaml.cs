@@ -22,9 +22,12 @@ using SwiftGet.Engine.Notifications;
 using SwiftGet.Engine.Probing;
 using SwiftGet.Engine.Queues;
 using SwiftGet.Engine.Serialization;
+using SwiftGet.Engine.Integration;
 using SwiftGet.Engine.Torrent;
+using SwiftGet.App.Services;
 using SwiftGet.Media.Recorder;
 using Windows.ApplicationModel.DataTransfer;
+using System.Collections.Generic;
 
 namespace SwiftGet.App.Views;
 
@@ -42,6 +45,8 @@ public sealed partial class MainWindow : Window
     private readonly ConcurrentDictionary<Guid, CancellationTokenSource> _activeDownloads = new();
     private readonly SemaphoreSlim _contentDialogSemaphore = new(1, 1);
     private readonly DispatcherTimer _telemetryTimer = new();
+    private readonly Queue<DateTime> _recentCaptureTimestamps = new();
+    private readonly Queue<SwiftGet.Engine.Server.InterceptDownloadRequest> _floodedCaptures = new();
     public MainViewModel ViewModel { get; }
     public DownloadDetailsViewModel DetailsViewModel { get; }
 
@@ -93,6 +98,23 @@ public sealed partial class MainWindow : Window
         await _contentDialogSemaphore.WaitAsync();
         try
         {
+            if (Content?.XamlRoot == null)
+            {
+                var tcs = new TaskCompletionSource<bool>();
+                void OnLoaded(object sender, RoutedEventArgs args)
+                {
+                    if (Content is FrameworkElement fe) fe.Loaded -= OnLoaded;
+                    tcs.TrySetResult(true);
+                }
+
+                if (Content is FrameworkElement feRoot)
+                {
+                    feRoot.Loaded += OnLoaded;
+                }
+
+                await Task.WhenAny(tcs.Task, Task.Delay(3000));
+            }
+
             if (Content?.XamlRoot == null)
             {
                 Serilog.Log.Warning("Cannot show ContentDialog: Content or XamlRoot is null.");
@@ -151,6 +173,7 @@ public sealed partial class MainWindow : Window
                 JobKind = d.JobKind,
                 InfoHash = d.InfoHash ?? string.Empty,
                 FileName = d.FileName,
+                IsFileNameUserLocked = d.IsFileNameUserLocked,
                 Url = d.Url,
                 SavePath = d.DestinationPath,
                 TotalBytes = d.TotalBytes,
@@ -321,6 +344,7 @@ public sealed partial class MainWindow : Window
                     try { kvp.Value.Cancel(); kvp.Value.Dispose(); } catch { }
                 }
                 _activeDownloads.Clear();
+            App.Services.GetService<ProcessPriorityService>()?.UpdateActiveTransfersCount(0);
                 _telemetryTimer.Stop();
                 _trayManager?.Dispose();
             };
@@ -376,13 +400,13 @@ public sealed partial class MainWindow : Window
             {
                 if (_activeDownloads.TryRemove(item.Id, out var cts))
                 {
-                    cts.Cancel();
-                    cts.Dispose();
+                    try { cts.Cancel(); } catch { }
                 }
                 item.Status = DownloadStatus.Paused;
                 item.SpeedBytesPerSec = 0;
                 item.RemainingTime = TimeSpan.Zero;
             }
+            App.Services.GetService<ProcessPriorityService>()?.UpdateActiveTransfersCount(_activeDownloads.Count);
             UpdateCategoryBadges();
             UpdateInspectorDetails(item);
         };
@@ -394,6 +418,7 @@ public sealed partial class MainWindow : Window
                 try { kvp.Value.Cancel(); kvp.Value.Dispose(); } catch { }
             }
             _activeDownloads.Clear();
+            App.Services.GetService<ProcessPriorityService>()?.UpdateActiveTransfersCount(0);
 
             try
             {
@@ -521,8 +546,10 @@ public sealed partial class MainWindow : Window
                 {
                     DispatcherQueue.TryEnqueue(() =>
                     {
+                        var normTarget = (args.DownloadId ?? string.Empty).Replace("-", string.Empty);
                         var item = ViewModel.AllDownloads.FirstOrDefault(d =>
-                            d.Id.ToString("N").Equals(args.DownloadId, StringComparison.OrdinalIgnoreCase));
+                            string.Equals(d.Id.ToString("N"), normTarget, StringComparison.OrdinalIgnoreCase) ||
+                            (Guid.TryParse(args.DownloadId, out var g) && d.Id == g));
                         if (item != null)
                         {
                             item.FileName = args.NewFileName;
@@ -544,8 +571,10 @@ public sealed partial class MainWindow : Window
                 {
                     DispatcherQueue.TryEnqueue(() =>
                     {
+                        var normTarget = (args.DownloadId ?? string.Empty).Replace("-", string.Empty);
                         var item = ViewModel.AllDownloads.FirstOrDefault(d =>
-                            d.Id.ToString("N").Equals(args.DownloadId, StringComparison.OrdinalIgnoreCase));
+                            string.Equals(d.Id.ToString("N"), normTarget, StringComparison.OrdinalIgnoreCase) ||
+                            (Guid.TryParse(args.DownloadId, out var g) && d.Id == g));
                         if (item != null && args.Connections.Count > 0)
                         {
                             for (int i = 0; i < args.Connections.Count; i++)
@@ -595,6 +624,11 @@ public sealed partial class MainWindow : Window
                 await ReloadDownloadsFromDatabaseAsync();
                 UpdateCategoryBadges();
                 BuildChunkVisualizer();
+                if (App.StartupCleanedItemsCount > 0)
+                {
+                    ShowCaptureNotificationBanner($"Cleaned up {App.StartupCleanedItemsCount} stale items.", showReviewButton: false);
+                    App.StartupCleanedItemsCount = 0;
+                }
                 Serilog.Log.Information("MainWindow ReloadDownloadsFromDatabaseAsync completed.");
             };
         }
@@ -666,7 +700,7 @@ public sealed partial class MainWindow : Window
         int documentsCount = ViewModel.AllDownloads.Count(d => string.Equals(d.Category, "documents", StringComparison.OrdinalIgnoreCase));
         int musicCount = ViewModel.AllDownloads.Count(d => string.Equals(d.Category, "music", StringComparison.OrdinalIgnoreCase));
         int torrentsCount = ViewModel.AllDownloads.Count(d => d.JobKind == JobKind.Torrent);
-        int unfinishedCount = ViewModel.AllDownloads.Count(d => d.Status is DownloadStatus.Downloading or DownloadStatus.Paused or DownloadStatus.Queued or DownloadStatus.FetchingMetadata or DownloadStatus.Checking or DownloadStatus.Failed);
+        int unfinishedCount = ViewModel.AllDownloads.Count(d => d.Status is DownloadStatus.Downloading or DownloadStatus.Paused or DownloadStatus.Queued or DownloadStatus.FetchingMetadata or DownloadStatus.Checking or DownloadStatus.Failed or DownloadStatus.Cancelled);
         int completedCount = ViewModel.AllDownloads.Count(d => d.Status is DownloadStatus.Completed or DownloadStatus.Seeding);
 
         if (FilterItemAll != null) FilterItemAll.Text = allCount > 0 ? $"All Downloads ({allCount})" : "All Downloads";
@@ -1269,17 +1303,24 @@ public sealed partial class MainWindow : Window
                         HttpProbeService probe = App.Services.GetRequiredService<HttpProbeService>();
                         var resolver = App.Services.GetRequiredService<IFileNameResolver>();
                         AddUrlViewModel addVm = new(probe, resolver) { Url = uri.AbsoluteUri };
+                        _ = addVm.ProbeAsync();
                         var dialog = new DownloadFileInfoDialog(addVm);
                         if (await ShowContentDialogSafeAsync(dialog) == ContentDialogResult.Primary)
                         {
                             var fileName = string.IsNullOrWhiteSpace(addVm.FileName) ? "download.bin" : addVm.FileName;
                             var destPath = addVm.FullSavePath;
+                            var ext = resolver.GetCompoundExtension(fileName);
+                            var isLocked = addVm.UserHasExplicitlyEditedFileName &&
+                                           !string.IsNullOrWhiteSpace(fileName) &&
+                                           !string.IsNullOrEmpty(ext) &&
+                                           !resolver.IsGenericOrScriptExtension(ext);
+
                             var newItem = new DownloadItemViewModel
                             {
                                 Id = Guid.NewGuid(),
                                 Url = addVm.Url,
                                 FileName = fileName,
-                                IsFileNameUserLocked = true,
+                                IsFileNameUserLocked = isLocked,
                                 SavePath = destPath,
                                 Category = addVm.SelectedCategory,
                                 QueueName = addVm.QueueName,
@@ -1341,7 +1382,11 @@ public sealed partial class MainWindow : Window
             var fileName = string.IsNullOrWhiteSpace(addVm.FileName) ? "download.bin" : addVm.FileName;
             var destPath = addVm.FullSavePath;
             var id = Guid.NewGuid();
-            var isLocked = true; // Confirmed by user in Download File Info dialog
+            var ext = resolver.GetCompoundExtension(fileName);
+            var isLocked = addVm.UserHasExplicitlyEditedFileName &&
+                           !string.IsNullOrWhiteSpace(fileName) &&
+                           !string.IsNullOrEmpty(ext) &&
+                           !resolver.IsGenericOrScriptExtension(ext);
 
             DownloadItemViewModel newItem = new()
             {
@@ -1369,15 +1414,16 @@ public sealed partial class MainWindow : Window
             newItem.Segments[0].UpdateMetrics(newItem.TotalBytes);
 
             var db = App.Services.GetRequiredService<ISwiftGetDatabase>();
+            var isMediaUrl = IsStreamingMediaPlatformUrl(newItem.Url);
             var downloadItem = new DownloadItem
             {
                 Id = id.ToString("N"),
-                JobKind = JobKind.Http,
+                JobKind = isMediaUrl ? JobKind.Media : JobKind.Http,
                 Url = newItem.Url,
                 FileName = newItem.FileName,
                 IsFileNameUserLocked = isLocked,
                 DestinationPath = newItem.SavePath,
-                CategoryId = newItem.Category,
+                CategoryId = isMediaUrl ? "video" : newItem.Category,
                 QueueId = newItem.QueueName,
                 TotalBytes = newItem.TotalBytes,
                 Status = newItem.Status,
@@ -1385,12 +1431,24 @@ public sealed partial class MainWindow : Window
             };
             await db.SaveDownloadAsync(downloadItem);
 
+            newItem.JobKind = isMediaUrl ? JobKind.Media : JobKind.Http;
+            if (isMediaUrl)
+            {
+                newItem.Category = "video";
+            }
             ViewModel.AddDownload(newItem);
             UpdateCategoryBadges();
 
             if (result == ContentDialogResult.Primary)
             {
-                _ = StartHttpDownloadAsync(newItem);
+                if (isMediaUrl)
+                {
+                    _ = StartMediaDownloadAsync(newItem);
+                }
+                else
+                {
+                    _ = StartHttpDownloadAsync(newItem);
+                }
                 OpenDownloadDetails(newItem);
             }
         }
@@ -1429,17 +1487,104 @@ public sealed partial class MainWindow : Window
                (host.Contains("instagram.com") && (uri.AbsolutePath.Contains("/reel/") || uri.AbsolutePath.Contains("/p/")));
     }
 
-    public async Task ShowDownloadFileInfoDialogAsync(SwiftGet.Engine.Server.InterceptDownloadRequest req)
+    public void ShowCaptureNotificationBanner(string message, bool showReviewButton = false)
     {
-        BringToForeground();
+        if (CaptureNotificationBanner == null || CaptureNotificationText == null) return;
+        CaptureNotificationText.Text = message;
+        if (CaptureNotificationReviewBtn != null)
+        {
+            CaptureNotificationReviewBtn.Visibility = showReviewButton ? Visibility.Visible : Visibility.Collapsed;
+        }
+        CaptureNotificationBanner.Visibility = Visibility.Visible;
+    }
+
+    private async void CaptureNotificationReview_Click(object sender, RoutedEventArgs e)
+    {
+        if (_floodedCaptures.Count == 0)
+        {
+            if (CaptureNotificationBanner != null) CaptureNotificationBanner.Visibility = Visibility.Collapsed;
+            return;
+        }
+
+        var nextReq = _floodedCaptures.Dequeue();
+        if (_floodedCaptures.Count == 0)
+        {
+            if (CaptureNotificationBanner != null) CaptureNotificationBanner.Visibility = Visibility.Collapsed;
+        }
+        else
+        {
+            ShowCaptureNotificationBanner($"{_floodedCaptures.Count} downloads were detected. Review?", showReviewButton: true);
+        }
+
+        await ShowDownloadFileInfoDialogInternalAsync(nextReq, bypassFloodCheck: true);
+    }
+
+    private void CaptureNotificationDismiss_Click(object sender, RoutedEventArgs e)
+    {
+        _floodedCaptures.Clear();
+        if (CaptureNotificationBanner != null)
+        {
+            CaptureNotificationBanner.Visibility = Visibility.Collapsed;
+        }
+    }
+
+    public Task ShowDownloadFileInfoDialogAsync(SwiftGet.Engine.Server.InterceptDownloadRequest req)
+    {
+        return ShowDownloadFileInfoDialogInternalAsync(req, bypassFloodCheck: false);
+    }
+
+    private async Task ShowDownloadFileInfoDialogInternalAsync(SwiftGet.Engine.Server.InterceptDownloadRequest req, bool bypassFloodCheck)
+    {
+        if (req == null || string.IsNullOrWhiteSpace(req.Url)) return;
+
+        var gatekeeper = App.Services.GetService<CaptureGatekeeper>();
+        var captureSettings = gatekeeper?.LoadSettings() ?? new BrowserCaptureSettings();
+
+        // Check if URL is already actively downloading or awaiting confirmation (Requirement E)
+        bool alreadyActive = ViewModel.AllDownloads.Any(d =>
+            d.Status is DownloadStatus.Downloading or DownloadStatus.Probing or DownloadStatus.Allocating &&
+            string.Equals(d.Url, req.Url, StringComparison.OrdinalIgnoreCase));
+
+        if (alreadyActive || (gatekeeper != null && gatekeeper.IsUrlActive(req.Url)))
+        {
+            if (req.ExplicitUserAction)
+            {
+                BringToForeground(req.WindowLeft, req.WindowTop, req.WindowWidth, req.WindowHeight);
+            }
+            Serilog.Log.Information("[CaptureGatekeeper] Skipping dialog for '{Url}': already active or awaiting confirmation.", req.Url);
+            return;
+        }
+
+        // Flood protection (Requirement G): if >3 captures arrive within 5 seconds, queue and show notification banner instead of modal flood
+        if (!bypassFloodCheck)
+        {
+            var now = DateTime.UtcNow;
+            while (_recentCaptureTimestamps.Count > 0 && (now - _recentCaptureTimestamps.Peek()).TotalSeconds > 5.0)
+            {
+                _recentCaptureTimestamps.Dequeue();
+            }
+            _recentCaptureTimestamps.Enqueue(now);
+
+            if (_recentCaptureTimestamps.Count > 3)
+            {
+                _floodedCaptures.Enqueue(req);
+                ShowCaptureNotificationBanner($"{_floodedCaptures.Count} downloads were detected. Review?", showReviewButton: true);
+                Serilog.Log.Warning("[FloodProtection] Suppressed modal dialog for '{Url}' ({Count} captures in 5s).", req.Url, _recentCaptureTimestamps.Count);
+                return;
+            }
+        }
+
+        BringToForeground(req.WindowLeft, req.WindowTop, req.WindowWidth, req.WindowHeight);
+        gatekeeper?.MarkUrlActive(req.Url);
         try
         {
             if (IsStreamingMediaPlatformUrl(req.Url))
             {
+                req.Url = CaptureGatekeeper.SanitizeMediaUrl(req.Url);
                 var mediaVm = App.Services.GetRequiredService<MediaDownloadViewModel>();
                 mediaVm.ExistingDownloadId = req.DownloadId;
                 mediaVm.MediaUrl = req.Url;
-                _ = mediaVm.ProbeMediaCommand.ExecuteAsync(null);
+                _ = mediaVm.ProbeMediaAsync();
 
                 var mediaDialog = new MediaDownloadDialog(mediaVm);
                 var mediaResult = await ShowContentDialogSafeAsync(mediaDialog);
@@ -1452,6 +1597,10 @@ public sealed partial class MainWindow : Window
                         if (enqueuedVm != null)
                         {
                             _ = StartMediaDownloadAsync(enqueuedVm, formatId: mediaVm.LastSelectedFormatSelector);
+                            if (ViewModel.ShowMediaProgressDialog)
+                            {
+                                OpenDownloadDetails(enqueuedVm);
+                            }
                         }
                     }
                 }
@@ -1494,10 +1643,24 @@ public sealed partial class MainWindow : Window
                 addVm.SelectedCategory = req.CategoryId;
             }
 
-            _ = addVm.ProbeAsync();
+            ContentDialogResult result;
+            if (captureSettings.Mode == CaptureMode.AutoStart)
+            {
+                await addVm.ProbeAsync();
+                result = ContentDialogResult.Primary;
+            }
+            else
+            {
+                _ = addVm.ProbeAsync();
+                var dialog = new DownloadFileInfoDialog(addVm);
+                result = await ShowContentDialogSafeAsync(dialog);
+            }
 
-            var dialog = new DownloadFileInfoDialog(addVm);
-            var result = await ShowContentDialogSafeAsync(dialog);
+            if (addVm.DontAskAgainForSite && gatekeeper != null)
+            {
+                gatekeeper.AddIgnoredSite(addVm.Url);
+            }
+
             var db = App.Services.GetRequiredService<ISwiftGetDatabase>();
 
             if (result == ContentDialogResult.Primary || result == ContentDialogResult.Secondary)
@@ -1508,7 +1671,11 @@ public sealed partial class MainWindow : Window
                 var downloadId = !string.IsNullOrWhiteSpace(req.DownloadId) ? req.DownloadId : Guid.NewGuid().ToString("N");
                 var idGuid = Guid.TryParse(downloadId, out var g) ? g : Guid.NewGuid();
 
-                var isLocked = true; // Confirmed by user in Download File Info dialog
+                var ext = resolver.GetCompoundExtension(fileName);
+                var isLocked = addVm.UserHasExplicitlyEditedFileName &&
+                               !string.IsNullOrWhiteSpace(fileName) &&
+                               !string.IsNullOrEmpty(ext) &&
+                               !resolver.IsGenericOrScriptExtension(ext);
 
                 var newItem = new DownloadItemViewModel
                 {
@@ -1568,14 +1735,14 @@ public sealed partial class MainWindow : Window
                 await db.DeleteDownloadAsync(req.DownloadId);
                 await ReloadDownloadsFromDatabaseAsync();
             }
-            else if (!string.IsNullOrWhiteSpace(req.DownloadId))
-            {
-                await db.DeleteDownloadAsync(req.DownloadId);
-            }
         }
         catch (Exception ex)
         {
             Serilog.Log.Error(ex, "Failed to show DownloadFileInfoDialog");
+        }
+        finally
+        {
+            gatekeeper?.UnmarkUrlActive(req.Url);
         }
     }
 
@@ -1818,10 +1985,80 @@ public sealed partial class MainWindow : Window
         }
         else
         {
-            DownloadDialogViewModel dialogVm = new(item);
+            DownloadDialogViewModel dialogVm = new(item)
+            {
+                PauseHandler = (vm) => PauseDownload(vm),
+                ResumeHandler = async (vm) => await ResumeDownloadAsync(vm),
+                CancelHandler = (vm) => CancelDownload(vm)
+            };
             DownloadProgressDialog dialog = new(dialogVm);
             dialog.Activate();
         }
+    }
+
+    public void PauseDownload(DownloadItemViewModel item)
+    {
+        ViewModel.StopHandler?.Invoke(item);
+        ProcessDownloadQueue();
+    }
+
+    public void CancelDownload(DownloadItemViewModel item)
+    {
+        if (item == null) return;
+
+        if (item.JobKind == JobKind.Torrent)
+        {
+            var torrentEngine = App.Services.GetRequiredService<ITorrentEngine>();
+            _ = torrentEngine.StopAsync(item.Id.ToString("N"));
+            item.Status = DownloadStatus.Cancelled;
+            item.SpeedBytesPerSec = 0;
+            item.UploadSpeedBytesPerSec = 0;
+        }
+        else
+        {
+            if (_activeDownloads.TryRemove(item.Id, out var cts))
+            {
+                try { cts.Cancel(); } catch { }
+                try { cts.Dispose(); } catch { }
+            }
+
+            item.Status = DownloadStatus.Cancelled;
+            item.SpeedBytesPerSec = 0;
+            item.RemainingTime = TimeSpan.Zero;
+        }
+
+        try
+        {
+            var db = App.Services.GetRequiredService<ISwiftGetDatabase>();
+            _ = db.UpdateDownloadStatusAsync(item.Id.ToString("N"), DownloadStatus.Cancelled, "Cancelled by user", CancellationToken.None);
+        }
+        catch { }
+
+        if (ViewModel.DeletePartialFilesOnCancel)
+        {
+            try
+            {
+                if (!string.IsNullOrWhiteSpace(item.SavePath) && File.Exists(item.SavePath))
+                {
+                    File.Delete(item.SavePath);
+                }
+            }
+            catch { }
+        }
+
+        App.Services.GetService<ProcessPriorityService>()?.UpdateActiveTransfersCount(_activeDownloads.Count);
+        UpdateCategoryBadges();
+        UpdateInspectorDetails(item);
+        ProcessDownloadQueue();
+    }
+
+    public Task ResumeDownloadAsync(DownloadItemViewModel item)
+    {
+        if (ViewModel.ResumeHandler != null)
+        {
+            return ViewModel.ResumeHandler.Invoke(item);
+        }
+        return Task.CompletedTask;
     }
 
     private async void ResumeContext_Click(object sender, RoutedEventArgs e)
@@ -2070,7 +2307,7 @@ public sealed partial class MainWindow : Window
                     (uri.Scheme == "http" || uri.Scheme == "https"))
                 {
                     mediaVm.MediaUrl = uri.AbsoluteUri;
-                    _ = mediaVm.ProbeMediaCommand.ExecuteAsync(null);
+                    _ = mediaVm.ProbeMediaAsync();
                 }
             }
         }
@@ -2091,6 +2328,10 @@ public sealed partial class MainWindow : Window
                 if (enqueuedVm != null)
                 {
                     _ = StartMediaDownloadAsync(enqueuedVm, formatId: mediaVm.LastSelectedFormatSelector);
+                    if (ViewModel.ShowMediaProgressDialog)
+                    {
+                        OpenDownloadDetails(enqueuedVm);
+                    }
                 }
             }
         }
@@ -2358,55 +2599,15 @@ public sealed partial class MainWindow : Window
         }
     }
 
-    public void BringToForeground()
+    public void BringToForeground(int? browserLeft = null, int? browserTop = null, int? browserWidth = null, int? browserHeight = null)
     {
         if (DispatcherQueue != null && !DispatcherQueue.HasThreadAccess)
         {
-            DispatcherQueue.TryEnqueue(BringToForeground);
+            DispatcherQueue.TryEnqueue(() => BringToForeground(browserLeft, browserTop, browserWidth, browserHeight));
             return;
         }
 
-        try
-        {
-            _appWindow?.Show();
-
-            var hWnd = WinRT.Interop.WindowNative.GetWindowHandle(this);
-            if (hWnd != IntPtr.Zero)
-            {
-                ShowWindow(hWnd, SwRestore);
-
-                var foregroundHwnd = GetForegroundWindow();
-                uint foregroundThreadId = foregroundHwnd != IntPtr.Zero ? GetWindowThreadProcessId(foregroundHwnd, out _) : 0;
-                uint currentThreadId = GetCurrentThreadId();
-
-                bool attached = false;
-                if (foregroundThreadId != 0 && foregroundThreadId != currentThreadId)
-                {
-                    attached = AttachThreadInput(currentThreadId, foregroundThreadId, true);
-                }
-
-                try
-                {
-                    BringWindowToTop(hWnd);
-                    SetWindowPos(hWnd, HwndTopmost, 0, 0, 0, 0, SwpNoMove | SwpNoSize | SwpShowWindow);
-                    SetWindowPos(hWnd, HwndNoTopmost, 0, 0, 0, 0, SwpNoMove | SwpNoSize | SwpShowWindow);
-                    SetForegroundWindow(hWnd);
-                }
-                finally
-                {
-                    if (attached)
-                    {
-                        AttachThreadInput(currentThreadId, foregroundThreadId, false);
-                    }
-                }
-            }
-
-            Activate();
-        }
-        catch (Exception ex)
-        {
-            Serilog.Log.Warning(ex, "Failed to force BringToForeground");
-        }
+        WindowActivator.Activate(this, browserLeft, browserTop, browserWidth, browserHeight);
     }
 
     public void RestoreMainWindow()
@@ -2449,12 +2650,30 @@ public sealed partial class MainWindow : Window
     {
         if (_activeDownloads.ContainsKey(vm.Id)) return Task.CompletedTask;
 
+        if (_activeDownloads.Count >= ViewModel.MaxConcurrentDownloads)
+        {
+            vm.Status = DownloadStatus.Queued;
+            vm.SpeedBytesPerSec = 0;
+            vm.RemainingTime = TimeSpan.Zero;
+            try
+            {
+                var queuedDb = App.Services.GetRequiredService<ISwiftGetDatabase>();
+                _ = queuedDb.UpdateDownloadStatusAsync(vm.Id.ToString("N"), DownloadStatus.Queued, null, CancellationToken.None);
+            }
+            catch { }
+            UpdateCategoryBadges();
+            if (ViewModel.SelectedItem == vm) UpdateInspectorDetails(vm);
+            return Task.CompletedTask;
+        }
+
         var cts = CancellationTokenSource.CreateLinkedTokenSource(externalCt);
         if (!_activeDownloads.TryAdd(vm.Id, cts))
         {
             cts.Dispose();
             return Task.CompletedTask;
         }
+
+        App.Services.GetService<ProcessPriorityService>()?.UpdateActiveTransfersCount(_activeDownloads.Count);
 
         vm.Status = DownloadStatus.Downloading;
         var coordinator = App.Services.GetRequiredService<DownloadCoordinator>();
@@ -2488,12 +2707,20 @@ public sealed partial class MainWindow : Window
                 DateTime lastTime = DateTime.UtcNow;
                 long lastBytes = vm.DownloadedBytes;
                 double smoothedSpeed = vm.SpeedBytesPerSec;
+                DateTime lastUiUpdateTime = DateTime.MinValue;
 
                 var progress = new Progress<long>(downloaded =>
                 {
+                    var now = DateTime.UtcNow;
+                    var elapsedMs = (now - lastUiUpdateTime).TotalMilliseconds;
+                    if (elapsedMs < 120 && downloaded < (dbItem.TotalBytes > 0 ? dbItem.TotalBytes : vm.TotalBytes))
+                    {
+                        return; // Throttle UI dispatch to ~8 Hz
+                    }
+                    lastUiUpdateTime = now;
+
                     DispatcherQueue.TryEnqueue(() =>
                     {
-                        var now = DateTime.UtcNow;
                         var elapsed = (now - lastTime).TotalSeconds;
                         if (elapsed >= 0.4)
                         {
@@ -2575,7 +2802,9 @@ public sealed partial class MainWindow : Window
             finally
             {
                 _activeDownloads.TryRemove(vm.Id, out _);
+                App.Services.GetService<ProcessPriorityService>()?.UpdateActiveTransfersCount(_activeDownloads.Count);
                 cts.Dispose();
+                ProcessDownloadQueue();
             }
         }, CancellationToken.None);
 
@@ -2586,12 +2815,30 @@ public sealed partial class MainWindow : Window
     {
         if (_activeDownloads.ContainsKey(vm.Id)) return Task.CompletedTask;
 
+        if (_activeDownloads.Count >= ViewModel.MaxConcurrentDownloads)
+        {
+            vm.Status = DownloadStatus.Queued;
+            vm.SpeedBytesPerSec = 0;
+            vm.RemainingTime = TimeSpan.Zero;
+            try
+            {
+                var queuedDb = App.Services.GetRequiredService<ISwiftGetDatabase>();
+                _ = queuedDb.UpdateDownloadStatusAsync(vm.Id.ToString("N"), DownloadStatus.Queued, null, CancellationToken.None);
+            }
+            catch { }
+            UpdateCategoryBadges();
+            if (ViewModel.SelectedItem == vm) UpdateInspectorDetails(vm);
+            return Task.CompletedTask;
+        }
+
         var cts = CancellationTokenSource.CreateLinkedTokenSource(externalCt);
         if (!_activeDownloads.TryAdd(vm.Id, cts))
         {
             cts.Dispose();
             return Task.CompletedTask;
         }
+
+        App.Services.GetService<ProcessPriorityService>()?.UpdateActiveTransfersCount(_activeDownloads.Count);
 
         vm.Status = DownloadStatus.Downloading;
         var recorder = App.Services.GetRequiredService<StreamRecorder>();
@@ -2622,9 +2869,18 @@ public sealed partial class MainWindow : Window
                 DateTime lastTime = DateTime.UtcNow;
                 long lastBytes = vm.DownloadedBytes;
                 double smoothedSpeed = vm.SpeedBytesPerSec;
+                DateTime lastUiUpdateTime = DateTime.MinValue;
 
                 void OnDetailedProgress(object? sender, StreamProgressEventArgs args)
                 {
+                    var now = DateTime.UtcNow;
+                    var elapsedMs = (now - lastUiUpdateTime).TotalMilliseconds;
+                    if (elapsedMs < 120 && args.ProgressPercentage < 100)
+                    {
+                        return; // Throttle UI dispatch to ~8 Hz
+                    }
+                    lastUiUpdateTime = now;
+
                     DispatcherQueue.TryEnqueue(() =>
                     {
                         var total = args.TotalBytes > 0 ? args.TotalBytes : (dbItem.TotalBytes > 0 ? dbItem.TotalBytes : vm.TotalBytes);
@@ -2637,7 +2893,6 @@ public sealed partial class MainWindow : Window
                         }
                         else
                         {
-                            var now = DateTime.UtcNow;
                             var elapsed = (now - lastTime).TotalSeconds;
                             if (elapsed >= 0.4 && current > lastBytes)
                             {
@@ -2657,14 +2912,52 @@ public sealed partial class MainWindow : Window
                             vm.RemainingTime = args.RemainingTime.Value;
                         }
 
+                        if (vm.Segments.Count == 0)
+                        {
+                            var seg = new SegmentProgressViewModel(1, 0, Math.Max(0, total - 1))
+                            {
+                                Status = "Downloading"
+                            };
+                            seg.Update(current, effectiveSpeed);
+                            seg.UpdateMetrics(total);
+                            vm.Segments.Add(seg);
+                        }
+                        else
+                        {
+                            var seg = vm.Segments[0];
+                            seg.EndOffset = Math.Max(0, total - 1);
+                            seg.Update(current, effectiveSpeed);
+                            seg.UpdateMetrics(total);
+                        }
+
                         ViewModel.UpdateMetrics();
                         UpdateFooterTelemetry();
                         if (ViewModel.SelectedItem == vm) UpdateInspectorDetails(vm);
                     });
                 }
 
+                void OnDestinationDiscovered(object? sender, string resolvedPath)
+                {
+                    DispatcherQueue.TryEnqueue(() =>
+                    {
+                        if (!string.IsNullOrWhiteSpace(resolvedPath))
+                        {
+                            var newFileName = Path.GetFileName(resolvedPath);
+                            if (!string.IsNullOrWhiteSpace(newFileName))
+                            {
+                                vm.FileName = newFileName;
+                                vm.SavePath = resolvedPath;
+                                dbItem.FileName = newFileName;
+                                dbItem.DestinationPath = resolvedPath;
+                                _ = db.SaveDownloadAsync(dbItem, CancellationToken.None);
+                            }
+                        }
+                    });
+                }
+
                 string actualPath = dbItem.DestinationPath;
                 recorder.DetailedProgressChanged += OnDetailedProgress;
+                recorder.DestinationDiscovered += OnDestinationDiscovered;
                 try
                 {
                     actualPath = await recorder.RecordStreamAsync(
@@ -2676,6 +2969,7 @@ public sealed partial class MainWindow : Window
                 finally
                 {
                     recorder.DetailedProgressChanged -= OnDetailedProgress;
+                    recorder.DestinationDiscovered -= OnDestinationDiscovered;
                 }
 
                 var verifiedPath = !string.IsNullOrWhiteSpace(actualPath) && File.Exists(actualPath)
@@ -2762,10 +3056,37 @@ public sealed partial class MainWindow : Window
             finally
             {
                 _activeDownloads.TryRemove(vm.Id, out _);
+                App.Services.GetService<ProcessPriorityService>()?.UpdateActiveTransfersCount(_activeDownloads.Count);
                 cts.Dispose();
+                ProcessDownloadQueue();
             }
         }, CancellationToken.None);
 
         return Task.CompletedTask;
+    }
+
+    private void ProcessDownloadQueue()
+    {
+        DispatcherQueue?.TryEnqueue(async () =>
+        {
+            while (_activeDownloads.Count < ViewModel.MaxConcurrentDownloads)
+            {
+                var nextItem = ViewModel.AllDownloads.FirstOrDefault(d => d.Status == DownloadStatus.Queued);
+                if (nextItem == null) break;
+
+                if (nextItem.JobKind == JobKind.Media || IsStreamingMediaPlatformUrl(nextItem.Url))
+                {
+                    await StartMediaDownloadAsync(nextItem);
+                }
+                else if (nextItem.JobKind == JobKind.Http)
+                {
+                    await StartHttpDownloadAsync(nextItem);
+                }
+                else
+                {
+                    break;
+                }
+            }
+        });
     }
 }

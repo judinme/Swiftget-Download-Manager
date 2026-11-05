@@ -237,15 +237,19 @@ if (typeof chrome !== "undefined" && chrome.runtime && chrome.runtime.onMessage)
         try {
           const url = raw.startsWith("magnet:?") ? raw : new URL(raw, base).href;
           if ((url.startsWith("http://") || url.startsWith("https://") || url.startsWith("magnet:?")) && !seen.has(url)) {
-            seen.add(url);
             const extMatch = url.split(/[?#]/)[0].match(/\.([a-z0-9]{2,5})$/i);
             const ext = extMatch ? "." + extMatch[1].toLowerCase() : "";
-            links.push({
-              url: url,
-              text: item.text,
-              ext: ext,
-              category: classifyLinkCategory(url)
-            });
+            const category = classifyLinkCategory(url);
+            // Only gather downloadable file links or magnet/torrent links, not generic navigation pages
+            if (url.startsWith("magnet:?") || category !== "general" || (ext && ![".html", ".htm", ".php", ".asp", ".aspx", ".jsp"].includes(ext))) {
+              seen.add(url);
+              links.push({
+                url: url,
+                text: item.text,
+                ext: ext,
+                category: category
+              });
+            }
           }
         } catch {
           // Ignore invalid URLs
@@ -287,17 +291,138 @@ const SG_ICONS = {
 };
 
 // ----------------------------------------------------
-// Media Sniffer Floating Overlay (4-Stage IDM Flow for Video & Audio)
+// Media Sniffer Floating Overlay ( Video & Audio )
 // ----------------------------------------------------
+function resolveOverlayHost(media) {
+  if (!media) return (typeof document !== "undefined" && document.body) || null;
+
+  // Prefer the outer player container so the button sits above all internal player overlays
+  // (e.g., YouTube's .ytp-chrome-top, .ytp-iv-video-content, .ytp-cued-thumbnail-overlay, click-catchers)
+  if (typeof media.closest === "function") {
+    try {
+      const playerRoot = media.closest(
+        "#movie_player, .html5-video-player, .video-js, .plyr, .jwplayer, .flowplayer, .shaka-video-container, [data-testid='videoPlayer'], [data-player]"
+      );
+      if (playerRoot) {
+        return playerRoot;
+      }
+    } catch {}
+  }
+
+  let current = media.parentElement;
+  if (current && typeof window !== "undefined" && typeof window.getComputedStyle === "function" && typeof media.getBoundingClientRect === "function") {
+    try {
+      const mediaRect = media.getBoundingClientRect();
+      for (let depth = 0; depth < 4 && current && current.parentElement && current.parentElement !== document.body && current.parentElement !== document.documentElement; depth++) {
+        const cs = window.getComputedStyle(current);
+        const curRect = typeof current.getBoundingClientRect === "function" ? current.getBoundingClientRect() : null;
+        const parentRect = typeof current.parentElement.getBoundingClientRect === "function" ? current.parentElement.getBoundingClientRect() : null;
+        const isZeroOrPointerNone = cs.pointerEvents === "none" || (curRect && curRect.height < 20);
+        const isSameBox = parentRect && mediaRect.width > 0 &&
+          Math.abs(parentRect.width - mediaRect.width) <= 48 &&
+          Math.abs(parentRect.height - mediaRect.height) <= 48;
+        if (isZeroOrPointerNone || isSameBox) {
+          current = current.parentElement;
+        } else {
+          break;
+        }
+      }
+    } catch {}
+  }
+
+  return current || media.parentElement || (typeof document !== "undefined" && document.body) || null;
+}
+
+function resolveMediaSourceAndTitle(media) {
+  const isAudio = media && media.tagName && media.tagName.toLowerCase() === "audio";
+  let rawTitle = (typeof document !== "undefined" && document.title) || (isAudio ? "Audio Track" : "Video");
+  rawTitle = rawTitle.replace(/^\(\d+\)\s*/, "").replace(/\s*-\s*YouTube$/i, "").replace(/\s*-\s*Vimeo$/i, "").trim();
+  if (!rawTitle) rawTitle = isAudio ? "Online Audio Stream" : "Online Video Stream";
+
+  const detectedUrls = [];
+  if (media && media.querySelectorAll) {
+    try {
+      const sources = media.querySelectorAll("source");
+      sources.forEach(s => {
+        const src = s.getAttribute("src");
+        if (src && !src.startsWith("blob:")) {
+          try {
+            const resolved = new URL(src, document.baseURI || window.location.href).href;
+            if (!detectedUrls.includes(resolved)) detectedUrls.push(resolved);
+          } catch {}
+        }
+      });
+    } catch {}
+  }
+
+  if (typeof performance !== "undefined" && performance.getEntriesByType) {
+    try {
+      const entries = performance.getEntriesByType("resource");
+      for (let i = entries.length - 1; i >= 0 && detectedUrls.length < 5; i--) {
+        const name = entries[i].name || "";
+        const lower = name.toLowerCase();
+        if (lower.includes(".m3u8") || lower.includes(".mpd") || lower.includes(".mp4") ||
+            lower.includes(".webm") || lower.includes(".m4a") || lower.includes(".ts") ||
+            lower.includes(".aac") || lower.includes(".mp3")) {
+          if (!detectedUrls.includes(name)) {
+            detectedUrls.push(name);
+          }
+        }
+      }
+    } catch {}
+  }
+
+  let mediaUrl = media ? (media.currentSrc || media.src) : "";
+  if (!mediaUrl || mediaUrl.startsWith("blob:")) {
+    mediaUrl = detectedUrls.length > 0 ? detectedUrls[0] : ((typeof window !== "undefined" && window.location && window.location.href) || "https://example.com/video");
+  }
+
+  return { mediaUrl, rawTitle, isAudio };
+}
+
+function triggerMediaDownloadForElement(media, btn) {
+  const now = Date.now();
+  if (btn && btn._lastTriggerMs && (now - btn._lastTriggerMs) < 450) {
+    return;
+  }
+  if (btn) {
+    btn._lastTriggerMs = now;
+  }
+
+  const { mediaUrl, rawTitle, isAudio } = resolveMediaSourceAndTitle(media);
+  dispatchMediaDownload(mediaUrl, rawTitle, "best");
+
+  if (btn && btn.style) {
+    try {
+      const defaultLabel = isAudio ? "Download this audio" : "Download this video";
+      btn.innerHTML = `${SG_ICONS.downloadTray}<span>Opening SwiftGet...</span>`;
+      if (typeof setTimeout === "function") {
+        setTimeout(() => {
+          try {
+            btn.innerHTML = `${SG_ICONS.downloadTray}<span>${defaultLabel}</span>`;
+          } catch {}
+        }, 1000);
+      }
+    } catch {}
+  }
+}
+
 function scanAndAttachVideoOverlays() {
   if (!isSnifferEnabled) return;
   if (typeof document === "undefined" || !document.querySelectorAll) return;
 
   const mediaElements = document.querySelectorAll("video, audio");
   mediaElements.forEach(media => {
-    if (media.dataset && media.dataset.swiftgetAttached) return;
-
     const isAudio = media.tagName.toLowerCase() === "audio";
+
+    // Bind media lifecycle listeners once so 0x0 lazy-loaded videos attach as soon as they become active
+    if (!media._swiftgetLifecycleBound && typeof media.addEventListener === "function") {
+      media._swiftgetLifecycleBound = true;
+      const rescan = () => scanAndAttachVideoOverlays();
+      media.addEventListener("loadedmetadata", rescan);
+      media.addEventListener("play", rescan);
+      media.addEventListener("mouseenter", rescan);
+    }
 
     // Minimum size check for video (skip tiny trackers/invisible elements)
     if (!isAudio && typeof media.getBoundingClientRect === "function") {
@@ -305,12 +430,33 @@ function scanAndAttachVideoOverlays() {
       if (rect.width < 120 || rect.height < 90) return;
     }
 
+    const parent = resolveOverlayHost(media);
+    if (!parent || typeof parent.appendChild !== "function") return;
+
+    // Check if an overlay button is already attached and still live in the target container
+    const existingBtn = media._swiftgetOverlayBtn;
+    if (media.dataset && media.dataset.swiftgetAttached === "true" && existingBtn) {
+      const stillConnected = existingBtn.isConnected !== false;
+      const sameParent = !existingBtn.parentElement || existingBtn.parentElement === parent;
+      if (stillConnected && sameParent) {
+        // Keep button as the last child of the player container so dynamic overlays don't cover it
+        if (parent.lastElementChild && parent.lastElementChild !== existingBtn) {
+          try {
+            parent.appendChild(existingBtn);
+          } catch {}
+        }
+        return;
+      }
+      try {
+        if ( typeof existingBtn.remove === "function") existingBtn.remove();
+      } catch {}
+    }
+
     if (media.dataset) {
       media.dataset.swiftgetAttached = "true";
     }
 
-    const parent = media.parentElement || document.body;
-    if (typeof window !== "undefined" && window.getComputedStyle) {
+    if (typeof window !== "undefined" && window.getComputedStyle && parent.style) {
       try {
         if (window.getComputedStyle(parent).position === "static") {
           parent.style.position = "relative";
@@ -318,135 +464,139 @@ function scanAndAttachVideoOverlays() {
       } catch {}
     }
 
-    // 1. Stage 1: Floating Overlay Button (Image 1)
+    // Floating Overlay Button
     const btn = document.createElement("button");
     btn.className = "swiftget-video-overlay-btn" + (isAudio ? " swiftget-audio-overlay-btn" : "");
     btn.setAttribute("type", "button");
+    if (btn.style) {
+      btn.style.pointerEvents = "auto";
+      btn.style.zIndex = "2147483647";
+      btn.style.cursor = "pointer";
+    }
     btn.innerHTML = `${SG_ICONS.downloadTray}<span>${isAudio ? "Download this audio" : "Download this video"}</span>`;
 
-    // 2. Stage 2: Dropdown Menu (Image 2)
-    let dropdown = null;
-
-    btn.addEventListener("click", (e) => {
-      e.preventDefault();
-      e.stopPropagation();
-
-      if (dropdown && dropdown.parentElement) {
-        dropdown.remove();
-        dropdown = null;
-        return;
+    const activateHandler = (e) => {
+      if (e) {
+        if (e._swiftgetHandled) return;
+        e._swiftgetHandled = true;
+        if (typeof e.preventDefault === "function") e.preventDefault();
+        if (typeof e.stopPropagation === "function") e.stopPropagation();
+        if (typeof e.stopImmediatePropagation === "function") e.stopImmediatePropagation();
       }
+      triggerMediaDownloadForElement(media, btn);
+    };
 
-      dropdown = createVideoDropdown(media, () => {
-        if (dropdown && dropdown.parentElement) {
-          dropdown.remove();
-          dropdown = null;
-        }
-      });
+    btn._swiftgetActivate = activateHandler;
+    media._swiftgetOverlayBtn = btn;
 
-      parent.appendChild(dropdown);
-    });
+    const shieldEvent = (e) => {
+      if (!e) return;
+      if (typeof e.stopPropagation === "function") e.stopPropagation();
+      if (typeof e.stopImmediatePropagation === "function") e.stopImmediatePropagation();
+    };
 
-    if (typeof document !== "undefined") {
-      document.addEventListener("click", (evt) => {
-        if (dropdown && !dropdown.contains(evt.target) && evt.target !== btn) {
-          dropdown.remove();
-          dropdown = null;
-        }
-      });
+    if (typeof btn.addEventListener === "function") {
+      // Stop pointerdown / mousedown / mouseup / touchstart from reaching video player controls
+      btn.addEventListener("pointerdown", shieldEvent, true);
+      btn.addEventListener("pointerdown", shieldEvent, false);
+      btn.addEventListener("mousedown", shieldEvent, true);
+      btn.addEventListener("mousedown", shieldEvent, false);
+      btn.addEventListener("mouseup", shieldEvent, true);
+      btn.addEventListener("mouseup", shieldEvent, false);
+      btn.addEventListener("touchstart", shieldEvent, true);
+      btn.addEventListener("touchend", shieldEvent, true);
+      btn.addEventListener("dblclick", shieldEvent, true);
+      btn.addEventListener("click", activateHandler);
     }
 
     parent.appendChild(btn);
   });
 }
 
+// Window-level capture shield so video player capture listeners (e.g. YouTube #movie_player)
+// can never intercept or block clicks on the "Download this video" overlay button
+function findOverlayButtonFromEvent(e) {
+  if (!e) return null;
+  if (typeof e.composedPath === "function") {
+    try {
+      const path = e.composedPath();
+      for (const node of path) {
+        if (node && node.className && typeof node.className === "string" && node.className.includes("swiftget-video-overlay-btn")) {
+          return node;
+        }
+      }
+    } catch {}
+  }
+  const t = e.target;
+  if (!t) return null;
+  if (t.className && typeof t.className === "string" && t.className.includes("swiftget-video-overlay-btn")) {
+    return t;
+  }
+  if (typeof t.closest === "function") {
+    try {
+      return t.closest(".swiftget-video-overlay-btn");
+    } catch {}
+  }
+  return null;
+}
+
+if (typeof window !== "undefined" && typeof window.addEventListener === "function") {
+  for (const evtName of ["pointerdown", "mousedown", "mouseup", "touchstart", "touchend", "dblclick"]) {
+    window.addEventListener(evtName, (e) => {
+      const btn = findOverlayButtonFromEvent(e);
+      if (btn) {
+        if (typeof e.stopPropagation === "function") e.stopPropagation();
+        if (typeof e.stopImmediatePropagation === "function") e.stopImmediatePropagation();
+      }
+    }, true);
+  }
+
+  window.addEventListener("click", (e) => {
+    const btn = findOverlayButtonFromEvent(e);
+    if (btn && typeof btn._swiftgetActivate === "function") {
+      btn._swiftgetActivate(e);
+    }
+  }, true);
+}
+
 // ----------------------------------------------------
-// Stage 2: Create Media Quality Dropdown Menu (Image 2)
+// Stage 2: Create Media Quality Dropdown Menu (Retained for API compatibility)
 // ----------------------------------------------------
 function createVideoDropdown(media, closeCallback) {
   const container = document.createElement("div");
   container.className = "swiftget-video-dropdown";
-  const isAudio = media && media.tagName && media.tagName.toLowerCase() === "audio";
-
-  // Derive media title from page or element
-  let rawTitle = (typeof document !== "undefined" && document.title) || (isAudio ? "Audio Track" : "Video");
-  rawTitle = rawTitle.replace(/\s*-\s*YouTube$/i, "").replace(/\s*-\s*Vimeo$/i, "").trim();
-  if (!rawTitle) rawTitle = isAudio ? "Online Audio Stream" : "Online Video Stream";
-
-  // Truncate title for item row matching Image 2
+  const { mediaUrl, rawTitle, isAudio } = resolveMediaSourceAndTitle(media);
   const truncatedTitle = rawTitle.length > 36 ? rawTitle.substring(0, 36) + "..." : rawTitle;
 
-  // Sniff active network media streams (HLS .m3u8, MPEG-DASH .mpd, fMP4, .ts, .mp4, .webm, .m4a, .mp3)
-  const detectedUrls = [];
-  if (media && media.querySelectorAll) {
-    const sources = media.querySelectorAll("source");
-    sources.forEach(s => {
-      const src = s.getAttribute("src");
-      if (src && !src.startsWith("blob:")) {
-        try {
-          const resolved = new URL(src, document.baseURI || window.location.href).href;
-          if (!detectedUrls.includes(resolved)) detectedUrls.push(resolved);
-        } catch {}
-      }
-    });
-  }
-
-  if (typeof performance !== "undefined" && performance.getEntriesByType) {
-    const entries = performance.getEntriesByType("resource");
-    for (let i = entries.length - 1; i >= 0 && detectedUrls.length < 5; i--) {
-      const name = entries[i].name || "";
-      const lower = name.toLowerCase();
-      if (lower.includes(".m3u8") || lower.includes(".mpd") || lower.includes(".mp4") ||
-          lower.includes(".webm") || lower.includes(".m4a") || lower.includes(".ts") ||
-          lower.includes(".aac") || lower.includes(".mp3")) {
-        if (!detectedUrls.includes(name)) {
-          detectedUrls.push(name);
-        }
-      }
-    }
-  }
-
-  // Derive realistic quality stream ladder
   const defaultVideoStreams = [
-    { label: "quality 1080p HD", ext: "MP4 file", sizeBytes: 20502549, sizeFormatted: "19.55 MB" },
-    { label: "quality 720p HD", ext: "MP4 file", sizeBytes: 13107200, sizeFormatted: "12.50 MB" },
-    { label: "quality 608p HD AV1, PM", ext: "MP4 file", sizeBytes: 10485760, sizeFormatted: "10.00 MB" },
-    { label: "quality 480p", ext: "MP4 file", sizeBytes: 7340032, sizeFormatted: "7.00 MB" },
-    { label: "quality 360p", ext: "MP4 file", sizeBytes: 4718592, sizeFormatted: "4.50 MB" },
-    { label: "quality 240p", ext: "MP4 file", sizeBytes: 3145728, sizeFormatted: "3.00 MB" },
-    { label: "quality 144p", ext: "MP4 file", sizeBytes: 1572864, sizeFormatted: "1.50 MB" }
+    { label: "quality 1080p HD", ext: "MP4 file" },
+    { label: "quality 720p HD", ext: "MP4 file" },
+    { label: "quality 480p", ext: "MP4 file" },
+    { label: "quality 360p", ext: "MP4 file" }
   ];
 
   const defaultAudioStreams = [
-    { label: "320 kbps High Quality", ext: "MP3 audio", sizeBytes: 8388608, sizeFormatted: "8.00 MB" },
-    { label: "256 kbps AAC", ext: "M4A audio", sizeBytes: 6291456, sizeFormatted: "6.00 MB" },
-    { label: "128 kbps Standard", ext: "MP3 audio", sizeBytes: 4194304, sizeFormatted: "4.00 MB" }
+    { label: "320 kbps High Quality", ext: "MP3 audio" },
+    { label: "256 kbps AAC", ext: "M4A audio" },
+    { label: "128 kbps Standard", ext: "MP3 audio" }
   ];
 
   const streams = isAudio ? defaultAudioStreams : defaultVideoStreams;
 
-  let mediaUrl = media ? (media.currentSrc || media.src) : "";
-  if (!mediaUrl || mediaUrl.startsWith("blob:")) {
-    mediaUrl = detectedUrls.length > 0 ? detectedUrls[0] : ((typeof window !== "undefined" && window.location && window.location.href) || "https://example.com/video");
-  }
-
-  // "Download all" header item
   const allItem = document.createElement("div");
   allItem.className = "swiftget-dropdown-item all-item";
   allItem.textContent = "Download all";
   allItem.addEventListener("click", (e) => {
     e.stopPropagation();
-    closeCallback();
+    if (closeCallback) closeCallback();
     dispatchMediaDownload(mediaUrl, rawTitle, "all");
   });
   container.appendChild(allItem);
 
-  // Divider
   const divider = document.createElement("div");
   divider.className = "swiftget-dropdown-divider";
   container.appendChild(divider);
 
-  // Numbered stream items
   streams.forEach((stream, idx) => {
     const item = document.createElement("div");
     item.className = "swiftget-dropdown-item";
@@ -464,7 +614,7 @@ function createVideoDropdown(media, closeCallback) {
 
     item.addEventListener("click", (e) => {
       e.stopPropagation();
-      closeCallback();
+      if (closeCallback) closeCallback();
       dispatchMediaDownload(mediaUrl, rawTitle, stream.label);
     });
 
@@ -474,9 +624,64 @@ function createVideoDropdown(media, closeCallback) {
   return container;
 }
 
+function cleanYouTubeMixUrl(rawUrl) {
+  if (!rawUrl) return "";
+  try {
+    const u = new URL(rawUrl);
+    if (u.hostname.toLowerCase().includes("youtube.com") || u.hostname.toLowerCase().includes("youtu.be")) {
+      const listParam = u.searchParams.get("list") || "";
+      if (listParam.toUpperCase().startsWith("RD") || u.searchParams.has("v")) {
+        u.searchParams.delete("list");
+        u.searchParams.delete("start_radio");
+        u.searchParams.delete("index");
+        u.searchParams.delete("pp");
+      }
+      return u.toString();
+    }
+    return rawUrl;
+  } catch {
+    return rawUrl;
+  }
+}
+
+async function sendMediaViaLoopbackDirect(targetUrl, pageUrl, title, correlationId) {
+  if (typeof fetch !== "function") return;
+  try {
+    let token = "";
+    try {
+      const tokenRes = await fetch("http://127.0.0.1:52384/api/v1/auth/token");
+      if (tokenRes.ok) {
+        const tokenData = await tokenRes.json();
+        token = tokenData?.authToken || "";
+      }
+    } catch {}
+
+    const headers = { "Content-Type": "application/json" };
+    if (token) headers["X-SwiftGet-Token"] = token;
+
+    await fetch("http://127.0.0.1:52384/api/v1/downloads", {
+      method: "POST",
+      headers,
+      body: JSON.stringify({
+        url: targetUrl,
+        referrer: pageUrl,
+        initiator: pageUrl,
+        fileName: title || "",
+        eventId: correlationId,
+        createdAtUtc: new Date().toISOString(),
+        userGesture: true,
+        explicitUserAction: true,
+        startImmediately: true,
+        showDialog: true
+      })
+    });
+  } catch {}
+}
+
 function dispatchMediaDownload(url, title, quality) {
   const correlationId = "corr_" + Date.now() + "_" + Math.random().toString(36).substring(2, 10);
-  const pageUrl = (typeof window !== "undefined" && window.location && window.location.href) || "";
+  const rawPageUrl = (typeof window !== "undefined" && window.location && window.location.href) || "";
+  const pageUrl = cleanYouTubeMixUrl(rawPageUrl);
 
   // If on a recognized streaming site (YouTube, etc.), pass pageUrl so yt-dlp gets the full video formats
   const lowerPage = pageUrl.toLowerCase();
@@ -484,23 +689,34 @@ function dispatchMediaDownload(url, title, quality) {
                           lowerPage.includes("vimeo.com") || lowerPage.includes("dailymotion.com") ||
                           lowerPage.includes("tiktok.com") || lowerPage.includes("twitch.tv") ||
                           lowerPage.includes("bilibili.com") || lowerPage.includes("soundcloud.com");
-  const targetUrl = isVideoPlatform ? pageUrl : (url || pageUrl);
+  const targetUrl = isVideoPlatform ? pageUrl : cleanYouTubeMixUrl(url || pageUrl);
 
+  const api = getExtensionApi();
   try {
-    if (typeof chrome !== "undefined" && chrome.runtime && chrome.runtime.sendMessage) {
-      chrome.runtime.sendMessage({
+    if (api && api.runtime && typeof api.runtime.sendMessage === "function") {
+      api.runtime.sendMessage({
         type: "INTERCEPT_MEDIA",
         url: targetUrl,
         pageUrl: pageUrl,
         title: title || "",
         quality: quality || "best",
         correlationId: correlationId,
+        createdAt: new Date().toISOString(),
+        userGesture: true,
+        explicitUserAction: true,
         startImmediately: true
+      }, (resp) => {
+        if ((api.runtime && api.runtime.lastError) || (resp && resp.success === false)) {
+          sendMediaViaLoopbackDirect(targetUrl, pageUrl, title, correlationId);
+        }
       });
+      return;
     }
   } catch (err) {
-    console.warn("[SwiftGet] Failed to dispatch media download:", err);
+    console.warn("[SwiftGet] Extension runtime sendMessage failed, falling back to loopback:", err);
   }
+
+  sendMediaViaLoopbackDirect(targetUrl, pageUrl, title, correlationId);
 }
 
 // ----------------------------------------------------
@@ -514,6 +730,13 @@ if (typeof document !== "undefined") {
   } else {
     scanAndAttachVideoOverlays();
   }
+
+  document.addEventListener("fullscreenchange", () => {
+    scanAndAttachVideoOverlays();
+  });
+  document.addEventListener("yt-navigate-finish", () => {
+    scanAndAttachVideoOverlays();
+  });
 
   // Active MutationObserver for instant detection of dynamically mounted video players
   if (typeof MutationObserver !== "undefined") {
@@ -547,5 +770,5 @@ if (typeof document !== "undefined") {
 }
 
 if (typeof window !== "undefined" && typeof window.setInterval === "function") {
-  window.setInterval(scanAndAttachVideoOverlays, 2500);
+  window.setInterval(scanAndAttachVideoOverlays, 1500);
 }

@@ -145,7 +145,7 @@
 
             <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="8">
                 <Button
-                    Content="Pause"
+                    Content="{x:Bind ViewModel.PauseResumeButtonText, Mode=OneWay}"
                     Command="{x:Bind ViewModel.TogglePauseCommand}"
                     Width="80" />
                 <Button

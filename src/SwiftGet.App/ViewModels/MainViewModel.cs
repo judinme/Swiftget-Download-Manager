@@ -47,6 +47,15 @@ public sealed partial class MainViewModel : ObservableObject
     [ObservableProperty]
     private string _freeDiskSpace = string.Empty;
 
+    [ObservableProperty]
+    private int _maxConcurrentDownloads = 3;
+
+    [ObservableProperty]
+    private bool _showMediaProgressDialog;
+
+    [ObservableProperty]
+    private bool _deletePartialFilesOnCancel;
+
     private readonly ISwiftGetDatabase? _db;
 
     public Func<DownloadItemViewModel, Task>? ResumeHandler { get; set; }
@@ -57,6 +66,11 @@ public sealed partial class MainViewModel : ObservableObject
     public MainViewModel(ISwiftGetDatabase? db = null)
     {
         _db = db;
+        var settings = AppSettingsStore.Load();
+        _maxConcurrentDownloads = Math.Clamp(settings.MaxConcurrentDownloads, 1, 10);
+        _showMediaProgressDialog = settings.ShowMediaProgressDialog;
+        _deletePartialFilesOnCancel = settings.DeletePartialFilesOnCancel;
+
         InitializeCategories();
         UpdateFreeDiskSpace();
     }

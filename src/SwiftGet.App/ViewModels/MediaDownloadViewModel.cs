@@ -23,6 +23,10 @@ public sealed partial class MediaDownloadViewModel : ObservableObject
     private readonly IMediaExtractor _extractor;
     private readonly ISwiftGetDatabase _db;
     private readonly ICategoryManager _categoryManager;
+    private CancellationTokenSource? _probeCts;
+    private Task? _activeProbeTask;
+    private string? _activeProbeUrl;
+    private int _probeVersion;
 
     [ObservableProperty]
     private string _mediaUrl = string.Empty;
@@ -99,7 +103,7 @@ public sealed partial class MediaDownloadViewModel : ObservableObject
 
     public Visibility DrmNoticeVisibility => IsDrmProtected ? Visibility.Visible : Visibility.Collapsed;
     public Visibility ContentVisibility => (!IsDrmProtected && !HasError) ? Visibility.Visible : Visibility.Collapsed;
-    public bool CanDownload => !IsProbing && !IsDrmProtected && !HasError && SelectedFormat != null && Formats.Count > 0;
+    public bool CanDownload => !IsDrmProtected && !HasError && !string.IsNullOrWhiteSpace(MediaUrl);
     public bool CanProbe => !IsProbing;
 
     public MediaDownloadViewModel(
@@ -112,6 +116,18 @@ public sealed partial class MediaDownloadViewModel : ObservableObject
         _categoryManager = categoryManager ?? throw new ArgumentNullException(nameof(categoryManager));
         var downloads = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "Downloads");
         _saveDirectory = PathResolver.GetPhysicalPath(downloads);
+    }
+
+    partial void OnMediaUrlChanged(string value)
+    {
+        OnPropertyChanged(nameof(CanDownload));
+        if (!string.IsNullOrWhiteSpace(value) && !IsProbing && !IsDrmProtected && Formats.Count == 0)
+        {
+            if (Uri.TryCreate(value.Trim(), UriKind.Absolute, out var uri) && (uri.Scheme == "http" || uri.Scheme == "https"))
+            {
+                _ = ProbeMediaAsync();
+            }
+        }
     }
 
     partial void OnIsDrmProtectedChanged(bool value)
@@ -145,12 +161,46 @@ public sealed partial class MediaDownloadViewModel : ObservableObject
     [RelayCommand]
     public async Task ProbeMediaAsync(CancellationToken ct = default)
     {
-        if (string.IsNullOrWhiteSpace(MediaUrl))
+        var targetUrl = MediaUrl?.Trim() ?? string.Empty;
+        if (string.IsNullOrWhiteSpace(targetUrl))
         {
             StatusMessage = "Please enter a valid media stream URL.";
             return;
         }
 
+        // If an extraction is already in-flight for this exact URL, join it instead of cancelling and spawning a duplicate yt-dlp process
+        if (IsProbing &&
+            _activeProbeTask is { IsCompleted: false } existingTask &&
+            string.Equals(_activeProbeUrl, targetUrl, StringComparison.OrdinalIgnoreCase))
+        {
+            await existingTask.ConfigureAwait(true);
+            return;
+        }
+
+        // Cancel any previous probe for a different URL
+        if (_probeCts != null)
+        {
+            try
+            {
+                await _probeCts.CancelAsync().ConfigureAwait(true);
+            }
+            catch { }
+            _probeCts.Dispose();
+            _probeCts = null;
+        }
+
+        var myVersion = Interlocked.Increment(ref _probeVersion);
+        var myCts = new CancellationTokenSource();
+        _probeCts = myCts;
+        _activeProbeUrl = targetUrl;
+
+        var task = ExecuteProbeInternalAsync(targetUrl, myVersion, myCts.Token);
+        _activeProbeTask = task;
+        await task.ConfigureAwait(true);
+    }
+
+    private async Task ExecuteProbeInternalAsync(string targetUrl, int myVersion, CancellationToken ct)
+    {
         IsProbing = true;
         HasError = false;
         ErrorMessage = string.Empty;
@@ -162,7 +212,17 @@ public sealed partial class MediaDownloadViewModel : ObservableObject
 
         try
         {
-            var meta = await _extractor.ExtractMetadataAsync(MediaUrl, ct).ConfigureAwait(true);
+            var meta = await _extractor.ExtractMetadataAsync(targetUrl, ct).ConfigureAwait(true);
+            if (myVersion != Volatile.Read(ref _probeVersion))
+            {
+                return;
+            }
+
+            HasError = false;
+            ErrorMessage = string.Empty;
+            ErrorDetails = string.Empty;
+            IsDrmProtected = false;
+
             Title = meta.Title;
             Uploader = meta.Uploader ?? "Unknown Channel";
             ThumbnailUrl = meta.ThumbnailUrl;
@@ -191,15 +251,37 @@ public sealed partial class MediaDownloadViewModel : ObservableObject
             }
 
             StatusMessage = $"Discovered {Formats.Count} formats.";
+            OnPropertyChanged(nameof(ContentVisibility));
+            OnPropertyChanged(nameof(CanDownload));
         }
         catch (DrmProtectionDetectedException drmEx)
         {
+            if (myVersion != Volatile.Read(ref _probeVersion))
+            {
+                return;
+            }
+
             IsDrmProtected = true;
             DrmMessage = drmEx.Message;
             StatusMessage = "Stream cannot be downloaded due to DRM protection.";
         }
+        catch (OperationCanceledException)
+        {
+            // Ignore cancellation when superseded by another probe or if formats were already loaded
+            if (myVersion != Volatile.Read(ref _probeVersion) || Formats.Count > 0)
+            {
+                return;
+            }
+
+            StatusMessage = "Media info fetch was canceled. Click Fetch Info to retry.";
+        }
         catch (Exception ex)
         {
+            if (myVersion != Volatile.Read(ref _probeVersion))
+            {
+                return;
+            }
+
             HasError = true;
             Title = "Failed to load media info";
             ErrorMessage = SidecarManager.FormatSidecarError(ex.Message, null);
@@ -210,7 +292,12 @@ public sealed partial class MediaDownloadViewModel : ObservableObject
         }
         finally
         {
-            IsProbing = false;
+            if (myVersion == Volatile.Read(ref _probeVersion))
+            {
+                IsProbing = false;
+                OnPropertyChanged(nameof(ContentVisibility));
+                OnPropertyChanged(nameof(CanDownload));
+            }
         }
     }
 
@@ -261,13 +348,16 @@ public sealed partial class MediaDownloadViewModel : ObservableObject
 
     public async Task<DownloadItem?> EnqueueDownloadAsync(CancellationToken ct = default)
     {
-        if (SelectedFormat == null || IsDrmProtected || HasError)
+        if (IsDrmProtected || HasError || string.IsNullOrWhiteSpace(MediaUrl))
         {
             return null;
         }
 
-        var cleanName = string.IsNullOrWhiteSpace(FileName)
-            ? $"media_{DateTime.UtcNow.Ticks}.{SelectedFormat.Extension}"
+        var ext = SelectedFormat?.Extension ?? "mp4";
+        var cleanName = string.IsNullOrWhiteSpace(FileName) ||
+                        FileName == "Loading media stream info..." ||
+                        FileName == "Failed to load media info"
+            ? DeriveInitialMediaFileName(MediaUrl, ext)
             : FileName;
 
         var category = _categoryManager.ResolveCategory(cleanName);
@@ -280,7 +370,7 @@ public sealed partial class MediaDownloadViewModel : ObservableObject
             : Guid.NewGuid().ToString("N");
         ExistingDownloadId = null;
 
-        LastSelectedFormatSelector = BuildFormatSelector(SelectedFormat);
+        LastSelectedFormatSelector = SelectedFormat != null ? BuildFormatSelector(SelectedFormat) : "bv*+ba/b";
 
         var item = new DownloadItem
         {
@@ -291,7 +381,7 @@ public sealed partial class MediaDownloadViewModel : ObservableObject
             DestinationPath = destPath,
             CategoryId = category.Id,
             QueueId = string.IsNullOrWhiteSpace(QueueName) ? "default" : QueueName,
-            TotalBytes = SelectedFormat.FileSizeBytes ?? 0,
+            TotalBytes = SelectedFormat?.FileSizeBytes ?? 0,
             Status = DownloadStatus.Queued,
             CreatedAtUtc = DateTime.UtcNow
         };
@@ -300,6 +390,26 @@ public sealed partial class MediaDownloadViewModel : ObservableObject
         LastEnqueuedItem = item;
         StatusMessage = $"Enqueued {cleanName} to queue '{item.QueueId}'.";
         return item;
+    }
+
+    public static string DeriveInitialMediaFileName(string url, string defaultExt = "mp4")
+    {
+        if (Uri.TryCreate(url, UriKind.Absolute, out var uri))
+        {
+            var query = System.Web.HttpUtility.ParseQueryString(uri.Query);
+            var v = query["v"];
+            if (!string.IsNullOrWhiteSpace(v))
+            {
+                return $"{FileNameSanitizer.Sanitize(v)}.{defaultExt}";
+            }
+
+            var last = uri.AbsolutePath.Trim('/').Split('/').LastOrDefault();
+            if (!string.IsNullOrWhiteSpace(last) && !last.Equals("watch", StringComparison.OrdinalIgnoreCase))
+            {
+                return $"{FileNameSanitizer.Sanitize(last)}.{defaultExt}";
+            }
+        }
+        return $"video_{DateTime.UtcNow.Ticks}.{defaultExt}";
     }
 
     private static string BuildFormatSelector(MediaFormat format)

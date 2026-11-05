@@ -28,7 +28,7 @@
             </Grid.ColumnDefinitions>
             <TextBlock Grid.Column="0" Text="URL" VerticalAlignment="Center" FontWeight="SemiBold"
                        Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
-            <TextBox Grid.Column="1" Text="{x:Bind ViewModel.Url, Mode=TwoWay}"
+            <TextBox Grid.Column="1" Text="{x:Bind ViewModel.Url, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
                      PlaceholderText="https://..." VerticalAlignment="Center"
                      AutomationProperties.Name="Download URL" />
         </Grid>
@@ -105,6 +105,10 @@
                          IsReadOnly="True" FontSize="12"
                          ToolTipService.ToolTip="{x:Bind ViewModel.CategoryPath, Mode=OneWay}"
                          AutomationProperties.Name="Remembered Category Path" />
+                <CheckBox Content="Don't ask again for this site"
+                          IsChecked="{x:Bind ViewModel.DontAskAgainForSite, Mode=TwoWay}"
+                          FontSize="12"
+                          AutomationProperties.Name="Dont ask again for this site" />
             </StackPanel>
         </Border>
 

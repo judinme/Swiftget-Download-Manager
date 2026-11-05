@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Collections.Specialized;
+using System.ComponentModel;
 using Microsoft.UI;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
@@ -19,6 +20,8 @@ public sealed partial class SegmentedProgressBar : UserControl
     public static readonly DependencyProperty OverallProgressProperty =
         DependencyProperty.Register(nameof(OverallProgress), typeof(double), typeof(SegmentedProgressBar),
             new PropertyMetadata(0.0, OnOverallProgressChanged));
+
+    private readonly List<SegmentProgressViewModel> _hookedItems = [];
 
     public IEnumerable<SegmentProgressViewModel>? Segments
     {
@@ -41,6 +44,8 @@ public sealed partial class SegmentedProgressBar : UserControl
     {
         if (d is SegmentedProgressBar control)
         {
+            control.UnhookAllItems();
+
             if (e.OldValue is INotifyCollectionChanged oldCollection)
             {
                 oldCollection.CollectionChanged -= control.OnCollectionChanged;
@@ -49,6 +54,11 @@ public sealed partial class SegmentedProgressBar : UserControl
             if (e.NewValue is INotifyCollectionChanged newCollection)
             {
                 newCollection.CollectionChanged += control.OnCollectionChanged;
+            }
+
+            if (e.NewValue is IEnumerable<SegmentProgressViewModel> items)
+            {
+                control.HookItems(items);
             }
 
             control.RenderSegments();
@@ -60,12 +70,60 @@ public sealed partial class SegmentedProgressBar : UserControl
         if (d is SegmentedProgressBar control && e.NewValue is double val)
         {
             control.OverallProgressBar.Value = Math.Clamp(val, 0, 100);
+            control.RenderSegments();
         }
     }
 
     private void OnCollectionChanged(object? sender, NotifyCollectionChangedEventArgs e)
     {
+        if (e.OldItems != null)
+        {
+            foreach (var item in e.OldItems)
+            {
+                if (item is SegmentProgressViewModel vm)
+                {
+                    vm.PropertyChanged -= OnItemPropertyChanged;
+                    _hookedItems.Remove(vm);
+                }
+            }
+        }
+
+        if (e.NewItems != null)
+        {
+            foreach (var item in e.NewItems)
+            {
+                if (item is SegmentProgressViewModel vm)
+                {
+                    vm.PropertyChanged += OnItemPropertyChanged;
+                    _hookedItems.Add(vm);
+                }
+            }
+        }
+
         RenderSegments();
+    }
+
+    private void HookItems(IEnumerable<SegmentProgressViewModel> items)
+    {
+        foreach (var item in items)
+        {
+            item.PropertyChanged += OnItemPropertyChanged;
+            _hookedItems.Add(item);
+        }
+    }
+
+    private void UnhookAllItems()
+    {
+        foreach (var item in _hookedItems)
+        {
+            item.PropertyChanged -= OnItemPropertyChanged;
+        }
+        _hookedItems.Clear();
+    }
+
+    private void OnItemPropertyChanged(object? sender, PropertyChangedEventArgs e)
+    {
+        DispatcherQueue?.TryEnqueue(RenderSegments);
     }
 
     private void SegmentsCanvas_SizeChanged(object sender, SizeChangedEventArgs e)

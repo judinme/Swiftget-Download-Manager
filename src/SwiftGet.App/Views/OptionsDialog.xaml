@@ -144,6 +144,16 @@
                                            Value="{x:Bind ViewModel.MaxConnections, Mode=TwoWay}"
                                            Minimum="1" Maximum="32" SmallChange="1" SpinButtonPlacementMode="Inline" />
 
+                                <NumberBox Header="Maximum Concurrent Downloads:"
+                                           Value="{x:Bind ViewModel.MaxConcurrentDownloads, Mode=TwoWay}"
+                                           Minimum="1" Maximum="10" SmallChange="1" SpinButtonPlacementMode="Inline" />
+
+                                <CheckBox Content="Show progress dialog for streaming media (YouTube) downloads"
+                                          IsChecked="{x:Bind ViewModel.ShowProgressWindowForMediaDownloads, Mode=TwoWay}" />
+
+                                <CheckBox Content="Delete partial files when download is cancelled"
+                                          IsChecked="{x:Bind ViewModel.DeletePartialFilesOnCancel, Mode=TwoWay}" />
+
                                 <CheckBox Content="Enable Global Speed Limiter"
                                           IsChecked="{x:Bind ViewModel.IsLimiterEnabled, Mode=TwoWay}" />
 
@@ -418,6 +428,85 @@
                                     <ProgressRing IsActive="{x:Bind ViewModel.IsCheckingForUpdates, Mode=OneWay}"
                                                   Width="20" Height="20" />
                                 </StackPanel>
+                            </StackPanel>
+                        </Border>
+                    </StackPanel>
+                </ScrollViewer>
+            </TabViewItem>
+
+            <!-- TAB 7: Browser Integration -->
+            <TabViewItem Header="Browser Integration" IsClosable="False">
+                <ScrollViewer VerticalScrollBarVisibility="Auto" Padding="4,8">
+                    <StackPanel Spacing="12">
+                        <Border Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+                                BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                                BorderThickness="1" CornerRadius="4" Padding="12">
+                            <StackPanel Spacing="10">
+                                <CheckBox Content="Capture downloads from browser"
+                                          IsChecked="{x:Bind ViewModel.BrowserCaptureEnabled, Mode=TwoWay}"
+                                          FontWeight="SemiBold"
+                                          AutomationProperties.Name="Capture downloads from browser" />
+
+                                <ComboBox Header="Capture Mode:"
+                                          HorizontalAlignment="Stretch"
+                                          SelectedIndex="{x:Bind ViewModel.BrowserCaptureModeIndex, Mode=TwoWay}"
+                                          IsEnabled="{x:Bind ViewModel.BrowserCaptureEnabled, Mode=OneWay}"
+                                          AutomationProperties.Name="Capture Mode">
+                                    <ComboBoxItem Content="Ask me (Show Download File Info dialog — Default)" />
+                                    <ComboBoxItem Content="Auto-start immediately without asking" />
+                                    <ComboBoxItem Content="Off (Never capture browser downloads)" />
+                                </ComboBox>
+
+                                <NumberBox Header="Minimum File Size to Auto-Capture (KB):"
+                                           Value="{x:Bind ViewModel.BrowserMinFileSizeKb, Mode=TwoWay}"
+                                           IsEnabled="{x:Bind ViewModel.BrowserCaptureEnabled, Mode=OneWay}"
+                                           Minimum="0" Maximum="1048576" SmallChange="64" SpinButtonPlacementMode="Inline" />
+
+                                <TextBox Header="Ignore List (Domains, URL patterns, or filenames — one per line):"
+                                         Text="{x:Bind ViewModel.BrowserIgnorePatternsText, Mode=TwoWay}"
+                                         AcceptsReturn="True"
+                                         Height="80"
+                                         ScrollViewer.VerticalScrollBarVisibility="Auto"
+                                         PlaceholderText="claude.ai/api&#x0a;*/api/*&#x0a;localhost" />
+
+                                <TextBox Header="Allowed File Extensions (space-separated):"
+                                         Text="{x:Bind ViewModel.BrowserAllowedExtensionsText, Mode=TwoWay}"
+                                         PlaceholderText=".zip .rar .7z .exe .msi .iso .mp4 .pdf" />
+                            </StackPanel>
+                        </Border>
+
+                        <!-- Capture Log & Clear State -->
+                        <Border Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+                                BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                                BorderThickness="1" CornerRadius="4" Padding="12">
+                            <StackPanel Spacing="8">
+                                <Grid>
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*" />
+                                        <ColumnDefinition Width="Auto" />
+                                        <ColumnDefinition Width="Auto" />
+                                    </Grid.ColumnDefinitions>
+                                    <TextBlock Text="Capture Decision Log (Last 100):" FontWeight="SemiBold" VerticalAlignment="Center" />
+                                    <Button Grid.Column="1" Content="Refresh Log"
+                                            Command="{x:Bind ViewModel.RefreshCaptureLogCommand}"
+                                            Margin="0,0,8,0" />
+                                    <Button Grid.Column="2" Content="Clear capture state"
+                                            Command="{x:Bind ViewModel.ClearCaptureStateCommand}"
+                                            AutomationProperties.Name="Clear capture state" />
+                                </Grid>
+
+                                <ListView ItemsSource="{x:Bind ViewModel.CaptureLogLines, Mode=OneWay}"
+                                          Height="110"
+                                          SelectionMode="None"
+                                          BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                                          BorderThickness="1"
+                                          CornerRadius="4">
+                                    <ListView.ItemTemplate>
+                                        <DataTemplate x:DataType="x:String">
+                                            <TextBlock Text="{x:Bind}" FontSize="11" FontFamily="Consolas" TextWrapping="NoWrap" />
+                                        </DataTemplate>
+                                    </ListView.ItemTemplate>
+                                </ListView>
                             </StackPanel>
                         </Border>
                     </StackPanel>

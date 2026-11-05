@@ -6,6 +6,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
+using SwiftGet.Core;
 using SwiftGet.Core.IO;
 using SwiftGet.Engine.Probing;
 
@@ -52,6 +53,9 @@ public sealed partial class AddUrlViewModel : ObservableObject
 
     [ObservableProperty]
     private bool _rememberCategoryPath = true;
+
+    [ObservableProperty]
+    private bool _dontAskAgainForSite;
 
     [ObservableProperty]
     private string _username = string.Empty;
@@ -145,6 +149,24 @@ public sealed partial class AddUrlViewModel : ObservableObject
 
     partial void OnUrlChanged(string value)
     {
+        if (UrlMediaDetector.IsStreamingMediaPlatformUrl(value))
+        {
+            SelectedCategory = "Video";
+            if ((string.IsNullOrWhiteSpace(FileName) || FileName == "download.bin" || FileName == "watch") && !UserHasExplicitlyEditedFileName)
+            {
+                _isInternalFileNameUpdate = true;
+                try
+                {
+                    FileName = MediaDownloadViewModel.DeriveInitialMediaFileName(value, "mp4");
+                }
+                finally
+                {
+                    _isInternalFileNameUpdate = false;
+                }
+            }
+            return;
+        }
+
         if (string.IsNullOrWhiteSpace(FileName) && !UserHasExplicitlyEditedFileName)
         {
             string candidate = _fileNameResolver.ResolveInitialCandidate(value);
@@ -193,6 +215,14 @@ public sealed partial class AddUrlViewModel : ObservableObject
         if (!Uri.TryCreate(Url, UriKind.Absolute, out Uri? uri) || (uri.Scheme != "http" && uri.Scheme != "https"))
         {
             StatusMessage = "Please enter a valid HTTP or HTTPS URL.";
+            return;
+        }
+
+        if (UrlMediaDetector.IsStreamingMediaPlatformUrl(Url))
+        {
+            SelectedCategory = "Video";
+            ResumeSupported = true;
+            StatusMessage = "Streaming media detected (will download via high-speed media engine).";
             return;
         }
 

@@ -26,7 +26,7 @@ public sealed partial class MediaDownloadDialog : ContentDialog
 
         PrimaryButtonClick += async (s, e) =>
         {
-            if (ViewModel.SelectedFormat == null || ViewModel.IsDrmProtected)
+            if (ViewModel.IsDrmProtected || ViewModel.HasError || string.IsNullOrWhiteSpace(ViewModel.MediaUrl))
             {
                 e.Cancel = true;
                 return;
@@ -45,7 +45,7 @@ public sealed partial class MediaDownloadDialog : ContentDialog
 
         SecondaryButtonClick += async (s, e) =>
         {
-            if (ViewModel.SelectedFormat == null || ViewModel.IsDrmProtected)
+            if (ViewModel.IsDrmProtected || ViewModel.HasError || string.IsNullOrWhiteSpace(ViewModel.MediaUrl))
             {
                 e.Cancel = true;
                 return;

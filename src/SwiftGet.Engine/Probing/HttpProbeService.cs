@@ -167,6 +167,8 @@ public class HttpProbeService
         string? referrer)
     {
         var request = new HttpRequestMessage(method, url);
+        request.Headers.TryAddWithoutValidation("X-SwiftGet-Origin", "1");
+        request.Headers.TryAddWithoutValidation("X-SwiftGet-Session-Token", SwiftGet.Engine.Integration.CaptureGatekeeper.SessionOriginToken);
 
         if (!string.IsNullOrWhiteSpace(userAgent))
         {

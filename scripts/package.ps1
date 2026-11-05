@@ -67,7 +67,7 @@ Copy-Item (Join-Path $assetsDir "*.json") $stagingDir -Force
 # Copy IDM domain exclusion list into staging directory
 Copy-Item (Join-Path $Root "defexclist.txt") $stagingDir -Force
 
-# Stage media sidecars into staging directory
+# Stage media sidecars into staging directory (only essential binaries: yt-dlp and ffmpeg)
 $sidecarsSource = Join-Path $Root "src\SwiftGet.App\sidecars"
 if (-not (Test-Path $sidecarsSource)) {
     $sidecarsSource = "C:\Users\SPARK\AppData\Local\SwiftGet\sidecars"
@@ -78,8 +78,14 @@ if (-not (Test-Path $sidecarsSource)) {
 if (Test-Path $sidecarsSource) {
     $stagingSidecars = Join-Path $stagingDir "sidecars"
     New-Item -ItemType Directory -Force -Path $stagingSidecars | Out-Null
-    Copy-Item (Join-Path $sidecarsSource "*") $stagingSidecars -Recurse -Force
-    Write-Host "Staged media sidecars into $stagingSidecars" -ForegroundColor DarkCyan
+    $essentialBinaries = @("yt-dlp.exe", "ffmpeg.exe")
+    foreach ($bin in $essentialBinaries) {
+        $binPath = Join-Path $sidecarsSource $bin
+        if (Test-Path $binPath) {
+            Copy-Item $binPath $stagingSidecars -Force
+            Write-Host "  Staged sidecar: $bin ($([math]::Round((Get-Item $binPath).Length / 1MB, 2)) MB)" -ForegroundColor DarkCyan
+        }
+    }
 }
 
 # 3. Build Browser Extensions (Chromium & Firefox)

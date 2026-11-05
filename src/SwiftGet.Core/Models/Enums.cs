@@ -21,7 +21,8 @@ public enum DownloadStatus
     Verifying,
     Completed,
     Failed,
-    RefreshingLink
+    RefreshingLink,
+    Cancelled
 }
 
 public enum TorrentFilePriority

@@ -27,7 +27,7 @@
                 <ColumnDefinition Width="Auto" />
             </Grid.ColumnDefinitions>
             <TextBox Header="Video / Media Web Address:"
-                     Text="{x:Bind ViewModel.MediaUrl, Mode=TwoWay}"
+                     Text="{x:Bind ViewModel.MediaUrl, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
                      PlaceholderText="https://www.youtube.com/watch?v=..."
                      AutomationProperties.Name="Video or Media Web Address" />
             <Button Grid.Column="1" Content="Fetch Info"
