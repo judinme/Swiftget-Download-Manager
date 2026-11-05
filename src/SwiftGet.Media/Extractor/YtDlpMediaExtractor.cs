@@ -114,6 +114,7 @@ public sealed class YtDlpMediaExtractor : IMediaExtractor
                 double? bitrate = GetJsonDouble(f, "tbr");
                 int? fps = GetJsonInt32(f, "fps");
                 int? height = GetJsonInt32(f, "height");
+                int? width = GetJsonInt32(f, "width");
 
                 var hasVideo = !string.Equals(vcodec, "none", StringComparison.OrdinalIgnoreCase);
                 var hasAudio = !string.Equals(acodec, "none", StringComparison.OrdinalIgnoreCase);
@@ -140,6 +141,8 @@ public sealed class YtDlpMediaExtractor : IMediaExtractor
                     FileSizeBytes = fileSize,
                     BitrateKbps = bitrate,
                     Fps = fps,
+                    Height = height,
+                    Width = width,
                     HasVideo = hasVideo,
                     HasAudio = hasAudio
                 };
@@ -158,6 +161,8 @@ public sealed class YtDlpMediaExtractor : IMediaExtractor
             var hasAudio = !string.Equals(acodec, "none", StringComparison.OrdinalIgnoreCase);
 
             long? fileSize = GetJsonInt64(root, "filesize") ?? GetJsonInt64(root, "filesize_approx");
+            int? height = GetJsonInt32(root, "height");
+            int? width = GetJsonInt32(root, "width");
 
             metadata.Formats.Add(new MediaFormat
             {
@@ -167,6 +172,8 @@ public sealed class YtDlpMediaExtractor : IMediaExtractor
                 VCodec = vcodec,
                 ACodec = acodec,
                 FileSizeBytes = fileSize,
+                Height = height,
+                Width = width,
                 HasVideo = hasVideo || !hasAudio,
                 HasAudio = hasAudio
             });

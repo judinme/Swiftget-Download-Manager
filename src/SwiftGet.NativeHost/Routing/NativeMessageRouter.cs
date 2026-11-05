@@ -635,6 +635,7 @@ public sealed class NativeMessageRouter
         }
         bool incognito = root.TryGetProperty("incognito", out var incogProp) && incogProp.GetBoolean();
         long fileSize = root.TryGetProperty("fileSize", out var fsProp) && fsProp.TryGetInt64(out var fsVal) ? fsVal : 0;
+        string? quality = root.TryGetProperty("quality", out var qpProp) ? qpProp.GetString() : null;
 
         // Grant foreground window permission so SwiftGet can reliably pop up in front
         GrantForegroundToSwiftGet();
@@ -656,6 +657,7 @@ public sealed class NativeMessageRouter
             Initiator = initiator,
             UserGesture = userGesture,
             ExplicitUserAction = isExplicitUserAction,
+            Quality = quality,
             JobKind = jobKind.ToString(),
             Cookies = cookies,
             Referrer = referrer,

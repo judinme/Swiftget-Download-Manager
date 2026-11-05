@@ -26,6 +26,8 @@ public sealed class MediaFormat
     public long? FileSizeBytes { get; set; }
     public double? BitrateKbps { get; set; }
     public int? Fps { get; set; }
+    public int? Height { get; set; }
+    public int? Width { get; set; }
     public bool HasVideo { get; set; } = true;
     public bool HasAudio { get; set; } = true;
 
@@ -41,13 +43,57 @@ public sealed class MediaFormat
                 _ => null
             };
 
-            var label = !string.IsNullOrWhiteSpace(Resolution)
-                ? Resolution
-                : (HasVideo ? "Video" : "Audio Only");
+            string label;
+            if (HasVideo)
+            {
+                var h = Height ?? ParseHeightFromResolution(Resolution);
+                label = h switch
+                {
+                    >= 4320 => "8K Ultra HD 4320p",
+                    >= 2160 => "4K Ultra HD 2160p",
+                    >= 1440 => "2K Quad HD 1440p",
+                    >= 1080 => "Full HD 1080p",
+                    >= 720 => "HD 720p",
+                    >= 480 => "SD 480p",
+                    >= 360 => "Medium 360p",
+                    >= 240 => "Low 240p",
+                    > 0 => $"{h}p",
+                    _ => !string.IsNullOrWhiteSpace(Resolution) ? Resolution : "Video"
+                };
+            }
+            else
+            {
+                label = !string.IsNullOrWhiteSpace(ACodec) && !ACodec.Equals("none", StringComparison.OrdinalIgnoreCase)
+                    ? $"Audio Only ({ACodec})"
+                    : "Audio Only";
+            }
 
             var ext = Extension.ToUpperInvariant();
-            return sizeStr != null ? $"{label} ({ext}) - ~{sizeStr}" : $"{label} ({ext})";
+            var metaParts = new List<string>();
+            if (Fps is > 30)
+            {
+                metaParts.Add($"{Fps}fps");
+            }
+            if (sizeStr != null)
+            {
+                metaParts.Add($"~{sizeStr}");
+            }
+
+            return metaParts.Count > 0
+                ? $"{label} ({ext}) - {string.Join(", ", metaParts)}"
+                : $"{label} ({ext})";
         }
+    }
+
+    public static int ParseHeightFromResolution(string? res)
+    {
+        if (string.IsNullOrWhiteSpace(res)) return 0;
+        var match = System.Text.RegularExpressions.Regex.Match(res, @"(?:x|p|^)(\d{3,4})");
+        if (match.Success && int.TryParse(match.Groups[1].Value, out var val))
+        {
+            return val;
+        }
+        return 0;
     }
 }
 

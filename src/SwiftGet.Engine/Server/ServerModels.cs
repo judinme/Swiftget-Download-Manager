@@ -31,6 +31,7 @@ public sealed class InterceptDownloadRequest
     public bool UserGesture { get; set; } = true;
     public bool ExplicitUserAction { get; set; }
     public string? MimeType { get; set; }
+    public string? Quality { get; set; }
 }
 
 public sealed class InterceptBatchRequest

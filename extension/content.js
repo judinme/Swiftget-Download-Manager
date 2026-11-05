@@ -66,9 +66,23 @@ function removeAllOverlayButtons() {
   try {
     if (typeof document === "undefined" || !document.querySelectorAll) return;
     document.querySelectorAll(".swiftget-video-overlay-btn").forEach(b => { try { b.remove(); } catch {} });
+    document.querySelectorAll(".swiftget-video-dropdown").forEach(b => { try { b.remove(); } catch {} });
     document.querySelectorAll("video, audio").forEach(m => {
       m._swiftgetOverlayBtn = null;
+      m._swiftgetDropdown = null;
       if (m.dataset) delete m.dataset.swiftgetAttached;
+    });
+  } catch {}
+}
+
+function closeAllMediaDropdowns() {
+  try {
+    if (typeof document === "undefined" || !document.querySelectorAll) return;
+    document.querySelectorAll(".swiftget-video-dropdown").forEach(d => {
+      try { d.remove(); } catch {}
+    });
+    document.querySelectorAll("video, audio").forEach(m => {
+      m._swiftgetDropdown = null;
     });
   } catch {}
 }
@@ -569,6 +583,7 @@ function scanAndAttachVideoOverlays() {
         if (typeof e.stopPropagation === "function") e.stopPropagation();
         if (typeof e.stopImmediatePropagation === "function") e.stopImmediatePropagation();
       }
+
       triggerMediaDownloadForElement(media, btn);
     };
 
@@ -600,27 +615,39 @@ function scanAndAttachVideoOverlays() {
 }
 
 // Window-level capture shield so video player capture listeners (e.g. YouTube #movie_player)
-// can never intercept or block clicks on the "Download this video" overlay button
+// can never intercept or block clicks on the overlay button or its quality dropdown
 function findOverlayButtonFromEvent(e) {
   if (!e) return null;
   if (typeof e.composedPath === "function") {
     try {
       const path = e.composedPath();
       for (const node of path) {
-        if (node && node.className && typeof node.className === "string" && node.className.includes("swiftget-video-overlay-btn")) {
-          return node;
+        if (node && node.className && typeof node.className === "string") {
+          if (node.className.includes("swiftget-video-overlay-btn") ||
+              node.className.includes("swiftget-video-dropdown") ||
+              node.className.includes("swiftget-dropdown-item")) {
+            return node;
+          }
         }
       }
     } catch {}
   }
   const t = e.target;
   if (!t) return null;
-  if (t.className && typeof t.className === "string" && t.className.includes("swiftget-video-overlay-btn")) {
+  if (t.className && typeof t.className === "string" &&
+      (t.className.includes("swiftget-video-overlay-btn") ||
+       t.className.includes("swiftget-video-dropdown") ||
+       t.className.includes("swiftget-dropdown-item"))) {
     return t;
   }
   if (typeof t.closest === "function") {
     try {
-      return t.closest(".swiftget-video-overlay-btn");
+      const btn = t.closest(".swiftget-video-overlay-btn");
+      if (btn) return btn;
+      const dd = t.closest(".swiftget-video-dropdown");
+      if (dd) return dd;
+      const item = t.closest(".swiftget-dropdown-item");
+      if (item) return item;
     } catch {}
   }
   return null;
@@ -629,8 +656,8 @@ function findOverlayButtonFromEvent(e) {
 if (typeof window !== "undefined" && typeof window.addEventListener === "function") {
   for (const evtName of ["pointerdown", "mousedown", "mouseup", "touchstart", "touchend", "dblclick"]) {
     window.addEventListener(evtName, (e) => {
-      const btn = findOverlayButtonFromEvent(e);
-      if (btn) {
+      const el = findOverlayButtonFromEvent(e);
+      if (el) {
         if (typeof e.stopPropagation === "function") e.stopPropagation();
         if (typeof e.stopImmediatePropagation === "function") e.stopImmediatePropagation();
       }
@@ -638,33 +665,43 @@ if (typeof window !== "undefined" && typeof window.addEventListener === "functio
   }
 
   window.addEventListener("click", (e) => {
-    const btn = findOverlayButtonFromEvent(e);
-    if (btn && typeof btn._swiftgetActivate === "function") {
-      btn._swiftgetActivate(e);
+    const el = findOverlayButtonFromEvent(e);
+    if (el) {
+      if (typeof e.stopPropagation === "function") e.stopPropagation();
+      if (typeof e.stopImmediatePropagation === "function") e.stopImmediatePropagation();
+      if (el.className && el.className.includes("swiftget-video-overlay-btn") && typeof el._swiftgetActivate === "function") {
+        el._swiftgetActivate(e);
+      }
+    } else {
+      closeAllMediaDropdowns();
     }
   }, true);
 }
 
 // ----------------------------------------------------
-// Stage 2: Create Media Quality Dropdown Menu (Retained for API compatibility)
+// Stage 2: Create Media Quality Dropdown Menu
 // ----------------------------------------------------
 function createVideoDropdown(media, closeCallback) {
   const container = document.createElement("div");
   container.className = "swiftget-video-dropdown";
+  if (container.style) {
+    container.style.zIndex = "2147483647";
+    container.style.pointerEvents = "auto";
+  }
   const { mediaUrl, rawTitle, isAudio } = resolveMediaSourceAndTitle(media);
   const truncatedTitle = rawTitle.length > 36 ? rawTitle.substring(0, 36) + "..." : rawTitle;
 
   const defaultVideoStreams = [
-    { label: "quality 1080p HD", ext: "MP4 file" },
-    { label: "quality 720p HD", ext: "MP4 file" },
-    { label: "quality 480p", ext: "MP4 file" },
-    { label: "quality 360p", ext: "MP4 file" }
+    { label: "1080p Full HD", ext: "MP4 file", quality: "1080p" },
+    { label: "720p HD", ext: "MP4 file", quality: "720p" },
+    { label: "480p", ext: "MP4 file", quality: "480p" },
+    { label: "360p", ext: "MP4 file", quality: "360p" },
+    { label: "Best Available Quality", ext: "MP4 file", quality: "best" }
   ];
 
   const defaultAudioStreams = [
-    { label: "320 kbps High Quality", ext: "MP3 audio" },
-    { label: "256 kbps AAC", ext: "M4A audio" },
-    { label: "128 kbps Standard", ext: "MP3 audio" }
+    { label: "High Quality Audio (320 kbps)", ext: "M4A audio", quality: "audio_hq" },
+    { label: "Standard Audio (128 kbps)", ext: "MP3 audio", quality: "audio" }
   ];
 
   const streams = isAudio ? defaultAudioStreams : defaultVideoStreams;
@@ -675,6 +712,7 @@ function createVideoDropdown(media, closeCallback) {
   allItem.addEventListener("click", (e) => {
     e.stopPropagation();
     if (closeCallback) closeCallback();
+    closeAllMediaDropdowns();
     dispatchMediaDownload(mediaUrl, rawTitle, "all");
   });
   container.appendChild(allItem);
@@ -701,7 +739,8 @@ function createVideoDropdown(media, closeCallback) {
     item.addEventListener("click", (e) => {
       e.stopPropagation();
       if (closeCallback) closeCallback();
-      dispatchMediaDownload(mediaUrl, rawTitle, stream.label);
+      closeAllMediaDropdowns();
+      dispatchMediaDownload(mediaUrl, rawTitle, stream.quality);
     });
 
     container.appendChild(item);
@@ -730,7 +769,7 @@ function cleanYouTubeMixUrl(rawUrl) {
   }
 }
 
-async function sendMediaViaLoopbackDirect(targetUrl, pageUrl, title, correlationId) {
+async function sendMediaViaLoopbackDirect(targetUrl, pageUrl, title, correlationId, quality) {
   if (typeof fetch !== "function") return;
   try {
     let token = "";
@@ -758,7 +797,8 @@ async function sendMediaViaLoopbackDirect(targetUrl, pageUrl, title, correlation
         userGesture: true,
         explicitUserAction: true,
         startImmediately: true,
-        showDialog: true
+        showDialog: true,
+        quality: quality || "best"
       })
     });
   } catch {}
@@ -793,7 +833,7 @@ function dispatchMediaDownload(url, title, quality) {
         startImmediately: true
       }, (resp) => {
         if ((api.runtime && api.runtime.lastError) || (resp && resp.success === false)) {
-          sendMediaViaLoopbackDirect(targetUrl, pageUrl, title, correlationId);
+          sendMediaViaLoopbackDirect(targetUrl, pageUrl, title, correlationId, quality);
         }
       });
       return;
@@ -802,7 +842,7 @@ function dispatchMediaDownload(url, title, quality) {
     console.warn("[SwiftGet] Extension runtime sendMessage failed, falling back to loopback:", err);
   }
 
-  sendMediaViaLoopbackDirect(targetUrl, pageUrl, title, correlationId);
+  sendMediaViaLoopbackDirect(targetUrl, pageUrl, title, correlationId, quality);
 }
 
 // ----------------------------------------------------

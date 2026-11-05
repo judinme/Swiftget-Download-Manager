@@ -1584,6 +1584,7 @@ public sealed partial class MainWindow : Window
                 var mediaVm = App.Services.GetRequiredService<MediaDownloadViewModel>();
                 mediaVm.ExistingDownloadId = req.DownloadId;
                 mediaVm.MediaUrl = req.Url;
+                mediaVm.RequestedQuality = req.Quality;
                 _ = mediaVm.ProbeMediaAsync();
 
                 var mediaDialog = new MediaDownloadDialog(mediaVm);

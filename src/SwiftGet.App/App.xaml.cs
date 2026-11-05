@@ -393,6 +393,7 @@ public sealed partial class App : Application
                                     Cookies = msg.Cookies,
                                     Referrer = msg.Referrer,
                                     UserAgent = msg.UserAgent,
+                                    Quality = msg.Quality,
                                     StartImmediately = msg.StartImmediately,
                                     ShowDialog = true,
                                     WindowLeft = msg.WindowLeft,

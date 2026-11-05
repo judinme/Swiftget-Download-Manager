@@ -37,6 +37,7 @@ public sealed record SingleInstanceMessage
     public string? Initiator { get; init; }
     public bool UserGesture { get; init; } = true;
     public bool ExplicitUserAction { get; init; }
+    public string? Quality { get; init; }
 }
 
 public interface ISingleInstanceIpc : IAsyncDisposable

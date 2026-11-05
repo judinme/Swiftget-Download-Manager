@@ -375,6 +375,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     const pageUrl = sanitizeMediaUrl(message.pageUrl || sender.tab?.url || "");
     const tabId = sender.tab?.id ?? -1;
     const fileName = message.fileName || message.title || "";
+    const quality = message.quality || "best";
     const destPath = message.savePath || "";
     const startImm = message.startImmediately !== false;
     const eventId = message.correlationId || generateEventId();
@@ -396,7 +397,8 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         tabId,
         initiator: pageUrl,
         userGesture: true,
-        explicitUserAction: true
+        explicitUserAction: true,
+        quality
       }).then((ok) => {
         sendResponse({ success: ok });
       });
@@ -405,7 +407,8 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         tabId,
         initiator: pageUrl,
         userGesture: true,
-        explicitUserAction: true
+        explicitUserAction: true,
+        quality
       }).then((ok) => {
         sendResponse({ success: ok });
       });
@@ -812,6 +815,7 @@ async function sendDownloadToSwiftGet(url, referrer, fileName, cookies = "", des
     initiator: meta.initiator || referrer || "",
     userGesture: meta.userGesture !== false,
     explicitUserAction: meta.explicitUserAction === true,
+    quality: meta.quality || "best",
     url: sanitizeMediaUrl(url),
     fileName: fileName || "",
     referrer: referrer || "",

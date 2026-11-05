@@ -68,6 +68,9 @@ public sealed partial class MediaDownloadViewModel : ObservableObject
     private string _queueName = "default";
 
     [ObservableProperty]
+    private string? _requestedQuality;
+
+    [ObservableProperty]
     private string _statusMessage = "Ready";
 
     [ObservableProperty]
@@ -228,10 +231,50 @@ public sealed partial class MediaDownloadViewModel : ObservableObject
             ThumbnailUrl = meta.ThumbnailUrl;
             DurationFormatted = meta.Duration > TimeSpan.Zero ? meta.Duration.ToString(@"hh\:mm\:ss", System.Globalization.CultureInfo.InvariantCulture) : "-";
 
+            // 1. Organize and prioritize formats by resolution descending (Highest Quality First)
+            var videoFormats = meta.Formats
+                .Where(f => f.HasVideo)
+                .Select(f =>
+                {
+                    if (!f.Height.HasValue || f.Height.Value <= 0)
+                    {
+                        f.Height = MediaFormat.ParseHeightFromResolution(f.Resolution);
+                    }
+                    return f;
+                })
+                .GroupBy(f => new { Height = f.Height ?? 0, Ext = f.Extension.ToLowerInvariant() })
+                .Select(g => g.OrderByDescending(f => f.Fps ?? 0)
+                              .ThenByDescending(f => f.FileSizeBytes ?? 0)
+                              .ThenByDescending(f => f.BitrateKbps ?? 0)
+                              .First())
+                .OrderByDescending(f => f.Height ?? 0)
+                .ThenByDescending(f => f.Fps ?? 0)
+                .ThenBy(f => f.Extension.Equals("mp4", StringComparison.OrdinalIgnoreCase) ? 0 : 1);
+
+            var audioFormats = meta.Formats
+                .Where(f => !f.HasVideo && f.HasAudio)
+                .GroupBy(f => f.Extension.ToLowerInvariant())
+                .Select(g => g.OrderByDescending(f => f.BitrateKbps ?? 0)
+                              .ThenByDescending(f => f.FileSizeBytes ?? 0)
+                              .First())
+                .OrderByDescending(f => f.BitrateKbps ?? 0);
+
             Formats.Clear();
-            foreach (var f in meta.Formats)
+            foreach (var f in videoFormats)
             {
                 Formats.Add(f);
+            }
+            foreach (var f in audioFormats)
+            {
+                Formats.Add(f);
+            }
+
+            if (Formats.Count == 0)
+            {
+                foreach (var f in meta.Formats)
+                {
+                    Formats.Add(f);
+                }
             }
 
             Subtitles.Clear();
@@ -240,8 +283,36 @@ public sealed partial class MediaDownloadViewModel : ObservableObject
                 Subtitles.Add(s);
             }
 
-            // Pick highest resolution video format as default
-            SelectedFormat = Formats.FirstOrDefault(f => f.HasVideo && f.HasAudio) ??
+            // Pick highest resolution video format as default (e.g. 1080p, 1440p, 4K), or matching requested quality
+            MediaFormat? defaultChoice = null;
+            if (!string.IsNullOrWhiteSpace(RequestedQuality))
+            {
+                var q = RequestedQuality.ToLowerInvariant();
+                if (q.Contains("1080"))
+                {
+                    defaultChoice = Formats.FirstOrDefault(f => f.HasVideo && ((f.Height ?? 0) == 1080 || f.Resolution.Contains("1080")));
+                }
+                else if (q.Contains("720"))
+                {
+                    defaultChoice = Formats.FirstOrDefault(f => f.HasVideo && ((f.Height ?? 0) == 720 || f.Resolution.Contains("720")));
+                }
+                else if (q.Contains("480"))
+                {
+                    defaultChoice = Formats.FirstOrDefault(f => f.HasVideo && ((f.Height ?? 0) == 480 || f.Resolution.Contains("480")));
+                }
+                else if (q.Contains("360"))
+                {
+                    defaultChoice = Formats.FirstOrDefault(f => f.HasVideo && ((f.Height ?? 0) == 360 || f.Resolution.Contains("360")));
+                }
+                else if (q.Contains("audio"))
+                {
+                    defaultChoice = Formats.FirstOrDefault(f => !f.HasVideo && f.HasAudio);
+                }
+            }
+
+            SelectedFormat = defaultChoice ??
+                             Formats.FirstOrDefault(f => f.HasVideo && (f.Height ?? 0) >= 1080) ??
+                             Formats.FirstOrDefault(f => f.HasVideo && (f.Height ?? 0) >= 720) ??
                              Formats.FirstOrDefault(f => f.HasVideo) ??
                              Formats.FirstOrDefault();
 
@@ -422,6 +493,11 @@ public sealed partial class MediaDownloadViewModel : ObservableObject
 
         if (format.HasVideo && !format.HasAudio)
         {
+            var h = format.Height ?? MediaFormat.ParseHeightFromResolution(format.Resolution);
+            if (h > 0)
+            {
+                return $"{format.FormatId}+ba/bv*[height<={h}]+ba/b[height<={h}]/bv*+ba/b";
+            }
             return $"{format.FormatId}+ba/{format.FormatId}/bv*+ba/b";
         }
 
