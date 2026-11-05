@@ -489,6 +489,88 @@ test('Content Script: Audio element attaches Download this audio overlay button'
   assert.ok(btn.innerHTML.includes('Download this audio'));
 });
 
+// ----------------------------------------------------
+// DRM streaming sites: overlay must never be shown
+// ----------------------------------------------------
+function runOverlayScanOnPage(href, { ancestorOrigins = null, storage = {} } = {}) {
+  const { mockChrome, mockWindow, mockDocument } = createMockEnvironment();
+  const attachedElements = [];
+  const mockVideo = {
+    tagName: 'VIDEO',
+    dataset: {},
+    parentElement: { style: {}, appendChild: (el) => attachedElements.push(el) },
+    getBoundingClientRect: () => ({ width: 1280, height: 720 })
+  };
+  mockWindow.location = { href };
+  if (ancestorOrigins) mockWindow.location.ancestorOrigins = ancestorOrigins;
+  mockDocument.baseURI = href;
+  mockDocument.querySelectorAll = (selector) => (selector.includes('video') ? [mockVideo] : []);
+  mockChrome.storage.local.get = async () => storage;
+
+  const runScript = new Function('window', 'document', 'chrome', contentScriptCode);
+  runScript(mockWindow, mockDocument, mockChrome);
+
+  const btn = attachedElements.find(el => el.className && el.className.includes('swiftget-video-overlay-btn'));
+  return { btn, mockVideo };
+}
+
+for (const href of [
+  'https://www.netflix.com/watch/81234567',
+  'https://www.primevideo.com/detail/0ABCDEF',
+  'https://www.amazon.com/gp/video/detail/B0ABCDEF/',
+  'https://www.amazon.co.uk/Prime-Video/b?node=3010085031',
+  'https://www.disneyplus.com/video/abc',
+  'https://www.hotstar.com/in/movies/x/123',
+  'https://play.max.com/video/watch/abc',
+  'https://open.spotify.com/track/123'
+]) {
+  test(`Content Script: no "Download this video" overlay on DRM site ${new URL(href).hostname}${new URL(href).pathname}`, () => {
+    const { btn, mockVideo } = runOverlayScanOnPage(href);
+    assert.equal(btn, undefined, `Overlay must not be attached on ${href}`);
+    assert.notEqual(mockVideo.dataset.swiftgetAttached, 'true');
+  });
+}
+
+test('Content Script: overlay blocked inside an iframe embedded by a DRM site', () => {
+  const { btn } = runOverlayScanOnPage('https://player.example-cdn.com/embed/1', {
+    ancestorOrigins: { length: 1, 0: 'https://www.netflix.com' }
+  });
+  assert.equal(btn, undefined);
+});
+
+test('Content Script: overlay still shown on YouTube and on regular Amazon product pages', () => {
+  for (const href of ['https://www.youtube.com/watch?v=7Jo-JZkrVbw', 'https://www.amazon.com/dp/B0CHX1W1XY']) {
+    const { btn } = runOverlayScanOnPage(href);
+    assert.ok(btn, `Overlay must be attached on ${href}`);
+    assert.ok(btn.innerHTML.includes('Download this video'));
+  }
+});
+
+test('Content Script: user exclusion list hosts hide the overlay; capture-only patterns are ignored', async () => {
+  const href = 'https://videos.mysite.example.org/watch/1';
+  const { mockChrome, mockWindow, mockDocument } = createMockEnvironment();
+  const attached = [];
+  const removed = [];
+  const btnEl = { className: 'swiftget-video-overlay-btn', remove: () => removed.push(1) };
+  const mockVideo = {
+    tagName: 'VIDEO', dataset: {},
+    parentElement: { style: {}, appendChild: (el) => attached.push(el) },
+    getBoundingClientRect: () => ({ width: 1280, height: 720 })
+  };
+  mockWindow.location = { href };
+  mockDocument.querySelectorAll = (selector) => {
+    if (selector === '.swiftget-video-overlay-btn') return [btnEl];
+    return selector.includes('video') ? [mockVideo] : [];
+  };
+  mockChrome.storage.local.get = async () => ({ blacklist: ['*/api/*', 'mysite.example.org'] });
+
+  const runScript = new Function('window', 'document', 'chrome', contentScriptCode);
+  runScript(mockWindow, mockDocument, mockChrome);
+  await new Promise(r => setTimeout(r, 0));
+
+  assert.ok(removed.length > 0, 'Existing overlay buttons must be removed once the user exclusion list loads');
+});
+
 test('Background Worker: FORCE_INTERCEPT_LINK gathers cookies and dispatches to native host', async () => {
   const env = createBackgroundMockEnvironment();
   const runWorker = new Function('chrome', 'navigator', backgroundScriptCode);

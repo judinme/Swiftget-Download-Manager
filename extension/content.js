@@ -3,25 +3,105 @@
 let isAltHeld = false;
 let isInsertHeld = false;
 let isSnifferEnabled = true;
+let userExcludedHosts = [];
+
+// DRM-protected streaming services. Their streams are encrypted (Widevine/PlayReady/FairPlay),
+// SwiftGet never circumvents DRM, so the "Download this video/audio" overlay is never shown here.
+// This list is built in and always applies, independent of the user-editable exclusion list.
+const DRM_STREAMING_HOSTS = [
+  "netflix.com", "primevideo.com", "disneyplus.com", "hotstar.com", "hulu.com",
+  "max.com", "hbomax.com", "tv.apple.com", "music.apple.com", "peacocktv.com",
+  "paramountplus.com", "crunchyroll.com", "spotify.com", "tidal.com", "deezer.com",
+  "dazn.com", "starplus.com", "starzplay.com", "osnplus.com", "shahid.mbc.net",
+  "zee5.com", "sonyliv.com", "jiocinema.com", "mubi.com", "showmax.com",
+  "stan.com.au", "canalplus.com", "nowtv.com", "skyshowtime.com", "play.max.com"
+];
+
+// Prime Video is also served from regular Amazon storefront domains (amazon.com, amazon.co.uk, ...).
+const AMAZON_VIDEO_PATH_PATTERN = /\/(gp\/video|prime-?video|amazon-?video)(\/|$|\?)/i;
+
+function hostMatchesList(host, list) {
+  if (!host) return false;
+  const h = host.toLowerCase().replace(/\.$/, "");
+  return list.some(d => h === d || h.endsWith("." + d));
+}
+
+function isAmazonPrimeVideoUrl(host, path) {
+  if (!host) return false;
+  const h = host.toLowerCase();
+  return /(^|\.)amazon\.[a-z.]+$/.test(h) && AMAZON_VIDEO_PATH_PATTERN.test(path || "");
+}
+
+function isOverlayBlockedOnThisPage() {
+  try {
+    const loc = (typeof window !== "undefined" && window.location) ? window.location : null;
+    if (!loc || !loc.href) return false;
+    const url = new URL(loc.href);
+    const hosts = [url.hostname];
+    // Embedded player iframes inherit the block from the page that hosts them
+    if (loc.ancestorOrigins && typeof loc.ancestorOrigins.length === "number") {
+      for (let i = 0; i < loc.ancestorOrigins.length; i++) {
+        try { hosts.push(new URL(loc.ancestorOrigins[i]).hostname); } catch {}
+      }
+    }
+    for (const h of hosts) {
+      if (hostMatchesList(h, DRM_STREAMING_HOSTS)) return true;
+      if (hostMatchesList(h, userExcludedHosts)) return true;
+    }
+    if (isAmazonPrimeVideoUrl(url.hostname, url.pathname)) return true;
+  } catch {}
+  return false;
+}
+
+// Only plain host entries from the user exclusion list apply to the overlay
+// (wildcard/path patterns such as "*/api/*" are download-capture rules, not sites).
+function parseUserExcludedHosts(list) {
+  if (!Array.isArray(list)) return [];
+  return list
+    .map(e => String(e || "").trim().toLowerCase())
+    .filter(e => e && !e.includes("*") && !e.includes("/") && !e.includes(":") && e.includes("."));
+}
+
+function removeAllOverlayButtons() {
+  try {
+    if (typeof document === "undefined" || !document.querySelectorAll) return;
+    document.querySelectorAll(".swiftget-video-overlay-btn").forEach(b => { try { b.remove(); } catch {} });
+    document.querySelectorAll("video, audio").forEach(m => {
+      m._swiftgetOverlayBtn = null;
+      if (m.dataset) delete m.dataset.swiftgetAttached;
+    });
+  } catch {}
+}
 
 try {
   const api = typeof chrome !== "undefined" ? chrome : (typeof browser !== "undefined" ? browser : null);
   if (api && api.storage && api.storage.local && typeof api.storage.local.get === "function") {
-    const p = api.storage.local.get(["snifferEnabled"]);
+    const p = api.storage.local.get(["snifferEnabled", "blacklist"]);
     if (p && typeof p.then === "function") {
       p.then((st) => {
         if (st && st.snifferEnabled === false) {
           isSnifferEnabled = false;
+        }
+        if (st && Array.isArray(st.blacklist)) {
+          userExcludedHosts = parseUserExcludedHosts(st.blacklist);
+          if (isOverlayBlockedOnThisPage()) removeAllOverlayButtons();
         }
       }).catch(() => {});
     }
   }
   if (api && api.storage && api.storage.onChanged && typeof api.storage.onChanged.addListener === "function") {
     api.storage.onChanged.addListener((changes) => {
+      if (changes && changes.blacklist) {
+        userExcludedHosts = parseUserExcludedHosts(changes.blacklist.newValue);
+        if (isOverlayBlockedOnThisPage()) removeAllOverlayButtons();
+        else scanAndAttachVideoOverlays();
+      }
       if (changes && changes.snifferEnabled) {
         isSnifferEnabled = changes.snifferEnabled.newValue !== false;
         if (isSnifferEnabled) {
           scanAndAttachVideoOverlays();
+        } else {
+          removeAllOverlayButtons();
         }
       }
     });
@@ -410,6 +490,12 @@ function triggerMediaDownloadForElement(media, btn) {
 function scanAndAttachVideoOverlays() {
   if (!isSnifferEnabled) return;
   if (typeof document === "undefined" || !document.querySelectorAll) return;
+  // Single-page apps (e.g. Amazon storefront -> Prime Video) can navigate into a blocked page
+  // without reloading, so re-check on every scan and strip any button that is already attached.
+  if (isOverlayBlockedOnThisPage()) {
+    removeAllOverlayButtons();
+    return;
+  }
 
   const mediaElements = document.querySelectorAll("video, audio");
   mediaElements.forEach(media => {
