@@ -117,6 +117,8 @@ public sealed partial class DownloadItemViewModel : ObservableObject
     [ObservableProperty]
     private bool _isSequential;
 
+    public string? PreferredFormatSelector { get; set; }
+
     public double ShareRatio => DownloadedBytes > 0
         ? (double)UploadedBytes / DownloadedBytes
         : (UploadedBytes > 0 ? 100.0 : 0.0);
@@ -275,6 +277,7 @@ public sealed partial class DownloadItemViewModel : ObservableObject
         DownloadStatus.FetchingMetadata => "Fetching metadata...",
         DownloadStatus.Checking => $"Checking ({ProgressPercentage:0.0}%)",
         DownloadStatus.Downloading => $"Downloading ({ProgressPercentage:0.0}%)",
+        DownloadStatus.Verifying => JobKind == JobKind.Media ? "Merging streams..." : "Verifying...",
         DownloadStatus.Seeding => $"Seeding (Ratio: {ShareRatio:0.00})",
         DownloadStatus.Paused => "Paused",
         DownloadStatus.Completed => "Complete",

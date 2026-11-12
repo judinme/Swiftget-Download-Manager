@@ -172,7 +172,7 @@ public sealed partial class App : Application
                 // M7 Services: Media Sidecars, Extractor, Stream Recorder
                 services.AddSingleton<SidecarManager>();
                 services.AddSingleton<IMediaExtractor, YtDlpMediaExtractor>();
-                services.AddSingleton<StreamRecorder>();
+                services.AddTransient<StreamRecorder>();
 
                 // M8 Services: Diagnostics, TLS Security Policy, Localization
                 services.AddSingleton<ITlsSecurityPolicy, TlsSecurityPolicy>();

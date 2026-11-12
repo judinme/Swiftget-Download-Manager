@@ -214,4 +214,80 @@ public sealed class MediaDownloaderTests : IDisposable
         args.Should().Contain(audioPath);
         args.Should().Contain(outputPath);
     }
+
+    [Theory]
+    [InlineData(@"C:\Users\SPARK\Downloads\Video Title.f137.mp4", "mp4", @"C:\Users\SPARK\Downloads\Video Title.mp4")]
+    [InlineData(@"C:\Users\SPARK\Downloads\Video Title.f251.webm", "mp4", @"C:\Users\SPARK\Downloads\Video Title.mp4")]
+    [InlineData(@"C:\Users\SPARK\Downloads\Video Title.f140-drc.m4a", "mp4", @"C:\Users\SPARK\Downloads\Video Title.mp4")]
+    [InlineData(@"C:\Users\SPARK\Downloads\Video Title.f399.mp4.part", "mp4", @"C:\Users\SPARK\Downloads\Video Title.mp4")]
+    [InlineData(@"C:\Users\SPARK\Downloads\Clean Video.mp4", "mp4", @"C:\Users\SPARK\Downloads\Clean Video.mp4")]
+    public void StreamRecorder_NormalizeFinalDestinationPath_StripsIntermediateStreamSuffixes(
+        string rawPath,
+        string mergeExt,
+        string expectedPath)
+    {
+        var normalized = StreamRecorder.NormalizeFinalDestinationPath(rawPath, mergeExt);
+        normalized.Should().Be(expectedPath);
+    }
+
+    [Fact]
+    public void StreamRecorder_ParseYtDlpOutput_NormalizesIntermediateDestination_AndDetectsMerger()
+    {
+        var manager = new SidecarManager(_tempDir);
+        var recorder = new StreamRecorder(manager);
+
+        string? discoveredPath = null;
+        StreamProgressEventArgs? lastProgress = null;
+
+        recorder.DestinationDiscovered += (_, p) => discoveredPath = p;
+        recorder.DetailedProgressChanged += (_, e) => lastProgress = e;
+
+        recorder.ParseYtDlpOutput(@"[download] Destination: C:\Users\SPARK\Downloads\Sample Video.f137.mp4");
+        discoveredPath.Should().Be(@"C:\Users\SPARK\Downloads\Sample Video.mp4");
+
+        recorder.ParseYtDlpOutput(@"[download] Destination: C:\Users\SPARK\Downloads\Sample Video.f251.webm");
+        discoveredPath.Should().Be(@"C:\Users\SPARK\Downloads\Sample Video.mp4");
+
+        recorder.ParseYtDlpOutput(@"[Merger] Merging formats into ""C:\Users\SPARK\Downloads\Sample Video.mp4""");
+        discoveredPath.Should().Be(@"C:\Users\SPARK\Downloads\Sample Video.mp4");
+        lastProgress.Should().NotBeNull();
+        lastProgress!.IsMerging.Should().BeTrue();
+        lastProgress.ProgressPercentage.Should().Be(100.0);
+    }
+
+    [Fact]
+    public void StreamRecorder_And_Extractor_BuildArgumentList_IncludeAntiStallFlags()
+    {
+        var recArgs = StreamRecorder.BuildRecordArgumentList(
+            "https://www.youtube.com/watch?v=8E-PtxpAsG4",
+            @"C:\Users\SPARK\Downloads\Video.mp4",
+            "137+ba/bv*+ba/b",
+            @"C:\Program Files\SwiftGet\sidecars\ffmpeg.exe",
+            out var mergeExt);
+
+        mergeExt.Should().Be("mp4");
+        recArgs.Should().Contain("--force-ipv4");
+        recArgs.Should().Contain("--socket-timeout");
+        recArgs.Should().Contain("--retries");
+        recArgs.Should().Contain("--fragment-retries");
+        recArgs.Should().Contain("--throttled-rate");
+        recArgs.Should().Contain("--continue");
+        recArgs.Should().NotContain("--no-part");
+
+        var extArgs = YtDlpMediaExtractor.BuildExtractorArgumentList("https://www.youtube.com/watch?v=8E-PtxpAsG4");
+        extArgs.Should().Contain("--force-ipv4");
+        extArgs.Should().Contain("--socket-timeout");
+        extArgs.Should().Contain("--retries");
+    }
+
+    [Fact]
+    public async Task SidecarManager_ExecuteSidecarAsync_ThrowsTimeoutException_WhenProcessStalls()
+    {
+        var act = async () => await SidecarManager.ExecuteSidecarAsync(
+            "node.exe",
+            ["-e", "setTimeout(() => {}, 10000);"],
+            inactivityTimeout: TimeSpan.FromMilliseconds(1200));
+
+        await act.Should().ThrowAsync<TimeoutException>();
+    }
 }

@@ -37,6 +37,15 @@ public sealed partial class StreamRecorder
     [GeneratedRegex(@"\[download\]\s+Destination:\s+(.+)", RegexOptions.IgnoreCase)]
     private static partial Regex YtDlpDestinationRegex();
 
+    [GeneratedRegex(@"\[Merger\]\s+Merging formats into\s+""(.+?)""", RegexOptions.IgnoreCase)]
+    private static partial Regex YtDlpMergerRegex();
+
+    [GeneratedRegex(@"^(?<base>.+)\.f[0-9a-zA-Z_-]+(?<ext>\.[a-zA-Z0-9]{2,5})$", RegexOptions.IgnoreCase)]
+    private static partial Regex IntermediateFormatFileRegex();
+
+    private string _currentMergeExt = "mp4";
+    private string? _lastDiscoveredFinalPath;
+
     public event EventHandler<double>? ProgressChanged;
     public event EventHandler<StreamProgressEventArgs>? DetailedProgressChanged;
     public event EventHandler<string>? DestinationDiscovered;
@@ -45,6 +54,101 @@ public sealed partial class StreamRecorder
     {
         _sidecarManager = sidecarManager ?? throw new ArgumentNullException(nameof(sidecarManager));
         _logger = logger ?? NullLogger<StreamRecorder>.Instance;
+    }
+
+    public static string NormalizeFinalDestinationPath(string path, string defaultMergeExt = "mp4")
+    {
+        if (string.IsNullOrWhiteSpace(path)) return path;
+
+        var cleaned = path.Trim().Trim('"');
+        if (cleaned.EndsWith(".part", StringComparison.OrdinalIgnoreCase))
+        {
+            cleaned = cleaned[..^5];
+        }
+        else if (cleaned.EndsWith(".ytdl", StringComparison.OrdinalIgnoreCase))
+        {
+            cleaned = cleaned[..^5];
+        }
+
+        var match = IntermediateFormatFileRegex().Match(cleaned);
+        if (match.Success)
+        {
+            var basePart = match.Groups["base"].Value;
+            var ext = string.IsNullOrWhiteSpace(defaultMergeExt)
+                ? match.Groups["ext"].Value.TrimStart('.')
+                : defaultMergeExt.TrimStart('.');
+            return $"{basePart}.{ext}";
+        }
+
+        return cleaned;
+    }
+
+    public static IReadOnlyList<string> BuildRecordArgumentList(
+        string streamUrl,
+        string resolvedDest,
+        string? formatId,
+        string? ffmpegPath,
+        out string mergeExt)
+    {
+        var requestedExt = Path.GetExtension(resolvedDest).TrimStart('.').ToLowerInvariant();
+        mergeExt = requestedExt is "mp4" or "mkv" or "webm" or "mov" or "flv" ? requestedExt : "mp4";
+
+        var args = new List<string>
+        {
+            "--newline",
+            "--progress",
+            "--no-playlist",
+            "--concurrent-fragments", "4",
+            "--force-ipv4",
+            "--socket-timeout", "15",
+            "--retries", "10",
+            "--fragment-retries", "10",
+            "--retry-sleep", "http:exp=1:5",
+            "--retry-sleep", "fragment:exp=1:5",
+            "--throttled-rate", "100K",
+            "--continue",
+            "--extractor-args", "youtube:player_client=default,-visionos"
+        };
+
+        if (!string.IsNullOrWhiteSpace(formatId))
+        {
+            args.Add("-f");
+            args.Add(formatId);
+        }
+        else
+        {
+            args.Add("-f");
+            args.Add("bv*+ba/b");
+        }
+
+        if (!string.IsNullOrEmpty(ffmpegPath))
+        {
+            args.Add("--ffmpeg-location");
+            args.Add(ffmpegPath);
+        }
+
+        args.Add("--merge-output-format");
+        args.Add(mergeExt);
+        args.Add("--no-warnings");
+
+        var dir = Path.GetDirectoryName(resolvedDest);
+        var fileNameWithoutExt = Path.GetFileNameWithoutExtension(resolvedDest);
+        if (string.IsNullOrWhiteSpace(fileNameWithoutExt) ||
+            fileNameWithoutExt.Equals("watch", StringComparison.OrdinalIgnoreCase) ||
+            fileNameWithoutExt.Equals("video", StringComparison.OrdinalIgnoreCase) ||
+            fileNameWithoutExt.StartsWith("download", StringComparison.OrdinalIgnoreCase))
+        {
+            args.Add("-o");
+            args.Add(Path.Combine(dir ?? string.Empty, "%(title)s.%(ext)s"));
+        }
+        else
+        {
+            args.Add("-o");
+            args.Add(resolvedDest);
+        }
+
+        args.Add(streamUrl);
+        return args;
     }
 
     public async Task<string> RecordStreamAsync(
@@ -68,86 +172,73 @@ public sealed partial class StreamRecorder
             throw new FileNotFoundException("yt-dlp binary is required to record streams.");
         }
 
-        var resolvedDest = PathResolver.GetPhysicalPath(destinationPath);
+        var normalizedDest = NormalizeFinalDestinationPath(destinationPath);
+        var resolvedDest = PathResolver.GetPhysicalPath(normalizedDest);
         var dir = Path.GetDirectoryName(resolvedDest);
         if (!string.IsNullOrEmpty(dir))
         {
             Directory.CreateDirectory(dir);
         }
 
-        var args = new List<string>
-        {
-            "--newline",
-            "--progress",
-            "--no-playlist",
-            "--concurrent-fragments", "4"
-        };
-
-        if (!string.IsNullOrWhiteSpace(formatId))
-        {
-            args.Add("-f");
-            args.Add(formatId);
-        }
-        else
-        {
-            args.Add("-f");
-            args.Add("bv*+ba/b");
-        }
-
         var ffmpegPath = _sidecarManager.FindFfmpegPath();
-        if (!string.IsNullOrEmpty(ffmpegPath))
-        {
-            args.Add("--ffmpeg-location");
-            args.Add(ffmpegPath);
-        }
-
-        var requestedExt = Path.GetExtension(resolvedDest).TrimStart('.').ToLowerInvariant();
-        if (requestedExt is "mp4" or "mkv" or "webm" or "mov" or "flv")
-        {
-            args.Add("--merge-output-format");
-            args.Add(requestedExt);
-        }
-        else
-        {
-            args.Add("--merge-output-format");
-            args.Add("mp4");
-        }
-
-        args.Add("--no-part");
-        args.Add("--no-warnings");
-
-        var fileNameWithoutExt = Path.GetFileNameWithoutExtension(resolvedDest);
-        if (string.IsNullOrWhiteSpace(fileNameWithoutExt) ||
-            fileNameWithoutExt.Equals("watch", StringComparison.OrdinalIgnoreCase) ||
-            fileNameWithoutExt.Equals("video", StringComparison.OrdinalIgnoreCase) ||
-            fileNameWithoutExt.StartsWith("download", StringComparison.OrdinalIgnoreCase))
-        {
-            args.Add("-o");
-            args.Add(Path.Combine(dir ?? string.Empty, "%(title)s.%(ext)s"));
-        }
-        else
-        {
-            args.Add("-o");
-            args.Add(resolvedDest);
-        }
-
-        args.Add(streamUrl);
+        var args = BuildRecordArgumentList(streamUrl, resolvedDest, formatId, ffmpegPath, out var mergeExt);
+        _currentMergeExt = mergeExt;
+        _lastDiscoveredFinalPath = null;
 
         _logger.LogInformation("Recording media stream to {DestinationPath}", resolvedDest);
 
-        var result = await SidecarManager.ExecuteSidecarAsync(
-            ytDlpPath,
-            args,
-            onStdOut: line => ParseYtDlpOutput(line),
-            onStdErr: line => ParseYtDlpOutput(line),
-            ct: ct).ConfigureAwait(false);
+        SidecarProcessResult? result = null;
+        Exception? lastException = null;
+        const int maxAttempts = 3;
 
-        if (!result.Success)
+        for (int attempt = 1; attempt <= maxAttempts; attempt++)
         {
-            throw new InvalidOperationException($"Stream recording failed: {SidecarManager.FormatSidecarError(result.StandardError, resolvedDest)}");
+            ct.ThrowIfCancellationRequested();
+            try
+            {
+                result = await SidecarManager.ExecuteSidecarAsync(
+                    ytDlpPath,
+                    args,
+                    onStdOut: line => ParseYtDlpOutput(line),
+                    onStdErr: line => ParseYtDlpOutput(line),
+                    ct: ct,
+                    inactivityTimeout: TimeSpan.FromSeconds(45)).ConfigureAwait(false);
+
+                if (result.Success)
+                {
+                    break;
+                }
+
+                _logger.LogWarning("yt-dlp attempt {Attempt}/{Max} exited with code {Code}: {Error}",
+                    attempt, maxAttempts, result.ExitCode, result.StandardError);
+            }
+            catch (TimeoutException tex) when (!ct.IsCancellationRequested && attempt < maxAttempts)
+            {
+                lastException = tex;
+                _logger.LogWarning(tex, "yt-dlp attempt {Attempt}/{Max} stalled; retrying...", attempt, maxAttempts);
+            }
+            catch (TimeoutException tex) when (!ct.IsCancellationRequested)
+            {
+                throw new InvalidOperationException($"Stream recording stalled after {maxAttempts} attempts: {tex.Message}", tex);
+            }
+
+            if (attempt < maxAttempts)
+            {
+                await Task.Delay(TimeSpan.FromMilliseconds(1500 * attempt), ct).ConfigureAwait(false);
+            }
         }
 
-        return ResolveProducedOutputPath(resolvedDest);
+        if (result == null || !result.Success)
+        {
+            var errText = result?.StandardError ?? lastException?.Message ?? "Unknown recording failure";
+            throw new InvalidOperationException($"Stream recording failed: {SidecarManager.FormatSidecarError(errText, resolvedDest)}");
+        }
+
+        var candidateTarget = !string.IsNullOrWhiteSpace(_lastDiscoveredFinalPath)
+            ? _lastDiscoveredFinalPath!
+            : resolvedDest;
+
+        return ResolveProducedOutputPath(candidateTarget);
     }
 
     public static string ResolveProducedOutputPath(string expectedPath)
@@ -271,9 +362,28 @@ public sealed partial class StreamRecorder
         return $"-y -i \"{videoPath}\" -i \"{audioPath}\" -c copy -movflags +faststart \"{outputPath}\"";
     }
 
-    private void ParseYtDlpOutput(string line)
+    public void ParseYtDlpOutput(string line)
     {
         if (string.IsNullOrWhiteSpace(line)) return;
+
+        var mergerMatch = YtDlpMergerRegex().Match(line);
+        if (mergerMatch.Success)
+        {
+            var mergedPath = mergerMatch.Groups[1].Value.Trim();
+            if (!string.IsNullOrWhiteSpace(mergedPath))
+            {
+                var normalizedMerged = NormalizeFinalDestinationPath(mergedPath, _currentMergeExt);
+                _lastDiscoveredFinalPath = normalizedMerged;
+                DestinationDiscovered?.Invoke(this, normalizedMerged);
+                DetailedProgressChanged?.Invoke(this, new StreamProgressEventArgs
+                {
+                    ProgressPercentage = 100.0,
+                    SpeedBytesPerSec = 0,
+                    IsMerging = true
+                });
+            }
+            return;
+        }
 
         var destMatch = YtDlpDestinationRegex().Match(line);
         if (destMatch.Success)
@@ -281,7 +391,9 @@ public sealed partial class StreamRecorder
             var discoveredPath = destMatch.Groups[1].Value.Trim();
             if (!string.IsNullOrWhiteSpace(discoveredPath))
             {
-                DestinationDiscovered?.Invoke(this, discoveredPath);
+                var normalizedPath = NormalizeFinalDestinationPath(discoveredPath, _currentMergeExt);
+                _lastDiscoveredFinalPath = normalizedPath;
+                DestinationDiscovered?.Invoke(this, normalizedPath);
             }
         }
 
@@ -395,4 +507,5 @@ public sealed class StreamProgressEventArgs : EventArgs
     public TimeSpan? RemainingTime { get; init; }
     public long DownloadedBytes { get; init; }
     public long TotalBytes { get; init; }
+    public bool IsMerging { get; init; }
 }

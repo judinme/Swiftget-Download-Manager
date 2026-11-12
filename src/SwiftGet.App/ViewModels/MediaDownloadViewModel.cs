@@ -27,6 +27,7 @@ public sealed partial class MediaDownloadViewModel : ObservableObject
     private Task? _activeProbeTask;
     private string? _activeProbeUrl;
     private int _probeVersion;
+    private string? _initialTitleHint;
 
     [ObservableProperty]
     private string _mediaUrl = string.Empty;
@@ -106,6 +107,8 @@ public sealed partial class MediaDownloadViewModel : ObservableObject
 
     public Visibility DrmNoticeVisibility => IsDrmProtected ? Visibility.Visible : Visibility.Collapsed;
     public Visibility ContentVisibility => (!IsDrmProtected && !HasError) ? Visibility.Visible : Visibility.Collapsed;
+    public Visibility ProbingVisibility => IsProbing ? Visibility.Visible : Visibility.Collapsed;
+    public Visibility MediaIconVisibility => (!IsProbing && !IsDrmProtected && !HasError) ? Visibility.Visible : Visibility.Collapsed;
     public bool CanDownload => !IsDrmProtected && !HasError && !string.IsNullOrWhiteSpace(MediaUrl);
     public bool CanProbe => !IsProbing;
 
@@ -119,6 +122,41 @@ public sealed partial class MediaDownloadViewModel : ObservableObject
         _categoryManager = categoryManager ?? throw new ArgumentNullException(nameof(categoryManager));
         var downloads = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "Downloads");
         _saveDirectory = PathResolver.GetPhysicalPath(downloads);
+    }
+
+    public void InitializeCaptureHint(string? initialTitleOrFileName, string? requestedQuality = null, string? existingDownloadId = null)
+    {
+        ExistingDownloadId = existingDownloadId;
+        RequestedQuality = requestedQuality;
+
+        if (!string.IsNullOrWhiteSpace(initialTitleOrFileName))
+        {
+            var raw = Path.GetFileNameWithoutExtension(initialTitleOrFileName.Trim());
+            if (!string.IsNullOrWhiteSpace(raw) &&
+                !raw.Equals("watch", StringComparison.OrdinalIgnoreCase) &&
+                !raw.Equals("video", StringComparison.OrdinalIgnoreCase) &&
+                !raw.StartsWith("download_", StringComparison.OrdinalIgnoreCase))
+            {
+                _initialTitleHint = raw;
+                FileName = FileNameSanitizer.SanitizeFileNameWithExtension(raw, "mp4");
+            }
+        }
+    }
+
+    public void CancelProbe()
+    {
+        Interlocked.Increment(ref _probeVersion);
+        if (_probeCts != null)
+        {
+            try
+            {
+                _probeCts.Cancel();
+            }
+            catch { }
+            _probeCts.Dispose();
+            _probeCts = null;
+        }
+        IsProbing = false;
     }
 
     partial void OnMediaUrlChanged(string value)
@@ -137,17 +175,21 @@ public sealed partial class MediaDownloadViewModel : ObservableObject
     {
         OnPropertyChanged(nameof(DrmNoticeVisibility));
         OnPropertyChanged(nameof(ContentVisibility));
+        OnPropertyChanged(nameof(MediaIconVisibility));
         OnPropertyChanged(nameof(CanDownload));
     }
 
     partial void OnHasErrorChanged(bool value)
     {
         OnPropertyChanged(nameof(ContentVisibility));
+        OnPropertyChanged(nameof(MediaIconVisibility));
         OnPropertyChanged(nameof(CanDownload));
     }
 
     partial void OnIsProbingChanged(bool value)
     {
+        OnPropertyChanged(nameof(ProbingVisibility));
+        OnPropertyChanged(nameof(MediaIconVisibility));
         OnPropertyChanged(nameof(CanDownload));
         OnPropertyChanged(nameof(CanProbe));
     }
@@ -424,11 +466,32 @@ public sealed partial class MediaDownloadViewModel : ObservableObject
             return null;
         }
 
+        if (IsProbing && _activeProbeTask is { IsCompleted: false } probeTask)
+        {
+            try
+            {
+                await Task.WhenAny(probeTask, Task.Delay(3500, ct)).ConfigureAwait(false);
+            }
+            catch { }
+        }
+
+        if (IsProbing)
+        {
+            CancelProbe();
+        }
+
+        if (IsDrmProtected || HasError)
+        {
+            return null;
+        }
+
         var ext = SelectedFormat?.Extension ?? "mp4";
         var cleanName = string.IsNullOrWhiteSpace(FileName) ||
                         FileName == "Loading media stream info..." ||
                         FileName == "Failed to load media info"
-            ? DeriveInitialMediaFileName(MediaUrl, ext)
+            ? (!string.IsNullOrWhiteSpace(_initialTitleHint)
+                ? FileNameSanitizer.SanitizeFileNameWithExtension(_initialTitleHint, ext)
+                : DeriveInitialMediaFileName(MediaUrl, ext))
             : FileName;
 
         var category = _categoryManager.ResolveCategory(cleanName);
@@ -441,7 +504,9 @@ public sealed partial class MediaDownloadViewModel : ObservableObject
             : Guid.NewGuid().ToString("N");
         ExistingDownloadId = null;
 
-        LastSelectedFormatSelector = SelectedFormat != null ? BuildFormatSelector(SelectedFormat) : "bv*+ba/b";
+        LastSelectedFormatSelector = SelectedFormat != null
+            ? BuildFormatSelector(SelectedFormat)
+            : BuildRequestedQualitySelector(RequestedQuality);
 
         var item = new DownloadItem
         {
@@ -461,6 +526,22 @@ public sealed partial class MediaDownloadViewModel : ObservableObject
         LastEnqueuedItem = item;
         StatusMessage = $"Enqueued {cleanName} to queue '{item.QueueId}'.";
         return item;
+    }
+
+    public static string BuildRequestedQualitySelector(string? requestedQuality)
+    {
+        if (string.IsNullOrWhiteSpace(requestedQuality))
+        {
+            return "bv*+ba/b";
+        }
+
+        var q = requestedQuality.ToLowerInvariant();
+        if (q.Contains("1080")) return "bv*[height<=1080]+ba/b[height<=1080]/bv*+ba/b";
+        if (q.Contains("720")) return "bv*[height<=720]+ba/b[height<=720]/bv*+ba/b";
+        if (q.Contains("480")) return "bv*[height<=480]+ba/b[height<=480]/bv*+ba/b";
+        if (q.Contains("360")) return "bv*[height<=360]+ba/b[height<=360]/bv*+ba/b";
+        if (q.Contains("audio")) return "ba/b";
+        return "bv*+ba/b";
     }
 
     public static string DeriveInitialMediaFileName(string url, string defaultExt = "mp4")

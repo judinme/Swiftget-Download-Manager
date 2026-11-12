@@ -55,12 +55,52 @@ public sealed class SidecarManager
         Directory.CreateDirectory(_sidecarsDir);
     }
 
+    private static long _lastTempCleanupTicks;
+
     public static string GetSafeTempDirectory()
     {
         var localAppData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
         var tempDir = Path.Combine(localAppData, "SwiftGet", "temp");
         Directory.CreateDirectory(tempDir);
-        return PathResolver.GetPhysicalPath(tempDir);
+        var resolved = PathResolver.GetPhysicalPath(tempDir);
+        TryScheduleStalePyInstallerCleanup(resolved);
+        return resolved;
+    }
+
+    private static void TryScheduleStalePyInstallerCleanup(string tempDir)
+    {
+        var nowTicks = Environment.TickCount64;
+        var prevTicks = Interlocked.Read(ref _lastTempCleanupTicks);
+        if (prevTicks != 0 && (nowTicks - prevTicks) < 300_000)
+        {
+            return;
+        }
+
+        if (Interlocked.CompareExchange(ref _lastTempCleanupTicks, nowTicks, prevTicks) != prevTicks)
+        {
+            return;
+        }
+
+        _ = Task.Run(() =>
+        {
+            try
+            {
+                var cutoffUtc = DateTime.UtcNow.AddMinutes(-20);
+                foreach (var dir in Directory.EnumerateDirectories(tempDir, "_MEI*"))
+                {
+                    try
+                    {
+                        var info = new DirectoryInfo(dir);
+                        if (info.LastWriteTimeUtc < cutoffUtc)
+                        {
+                            info.Delete(recursive: true);
+                        }
+                    }
+                    catch { }
+                }
+            }
+            catch { }
+        });
     }
 
     public static string GetSafeCacheDirectory()
@@ -272,6 +312,7 @@ public sealed class SidecarManager
         IEnumerable<string> arguments,
         Action<string>? onStdOut = null,
         Action<string>? onStdErr = null,
+        TimeSpan? inactivityTimeout = null,
         CancellationToken ct = default)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(binaryPath);
@@ -378,49 +419,131 @@ public sealed class SidecarManager
         }
 
         using var process = new Process { StartInfo = startInfo };
+        var outputLock = new object();
         var stdoutBuilder = new StringBuilder();
         var stderrBuilder = new StringBuilder();
+        var stdoutEof = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var stderrEof = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        long lastActivityTicks = Environment.TickCount64;
 
         process.OutputDataReceived += (s, e) =>
         {
-            if (e.Data != null)
+            if (e.Data == null)
+            {
+                stdoutEof.TrySetResult(true);
+                return;
+            }
+
+            Interlocked.Exchange(ref lastActivityTicks, Environment.TickCount64);
+            lock (outputLock)
             {
                 stdoutBuilder.AppendLine(e.Data);
+            }
+            try
+            {
                 onStdOut?.Invoke(e.Data);
             }
+            catch { }
         };
 
         process.ErrorDataReceived += (s, e) =>
         {
-            if (e.Data != null)
+            if (e.Data == null)
+            {
+                stderrEof.TrySetResult(true);
+                return;
+            }
+
+            Interlocked.Exchange(ref lastActivityTicks, Environment.TickCount64);
+            lock (outputLock)
             {
                 stderrBuilder.AppendLine(e.Data);
+            }
+            try
+            {
                 onStdErr?.Invoke(e.Data);
             }
+            catch { }
         };
 
         try
         {
             process.Start();
+            Interlocked.Exchange(ref lastActivityTicks, Environment.TickCount64);
             process.BeginOutputReadLine();
             process.BeginErrorReadLine();
 
-            await process.WaitForExitAsync(ct).ConfigureAwait(false);
+            if (inactivityTimeout.HasValue && inactivityTimeout.Value > TimeSpan.Zero)
+            {
+                var timeoutMs = (long)inactivityTimeout.Value.TotalMilliseconds;
+                var waitForExitTask = process.WaitForExitAsync(ct);
+                while (!waitForExitTask.IsCompleted)
+                {
+                    var delayTask = Task.Delay(1000, ct);
+                    var completed = await Task.WhenAny(waitForExitTask, delayTask).ConfigureAwait(false);
+                    if (completed == waitForExitTask)
+                    {
+                        await waitForExitTask.ConfigureAwait(false);
+                        break;
+                    }
+
+                    var idleMs = Environment.TickCount64 - Interlocked.Read(ref lastActivityTicks);
+                    if (idleMs >= timeoutMs)
+                    {
+                        try
+                        {
+                            if (!process.HasExited)
+                            {
+                                KillProcessTree(process.Id);
+                            }
+                        }
+                        catch { }
+                        throw new TimeoutException($"Sidecar process stalled with no output for {inactivityTimeout.Value.TotalSeconds:F0} seconds.");
+                    }
+                }
+            }
+            else
+            {
+                await process.WaitForExitAsync(ct).ConfigureAwait(false);
+            }
+
+            // Ensure async stdout/stderr pipe readers finish draining before reading StringBuilder
+            await Task.WhenAny(
+                Task.WhenAll(stdoutEof.Task, stderrEof.Task),
+                Task.Delay(2000, CancellationToken.None)).ConfigureAwait(false);
+
+            string stdOut;
+            string stdErr;
+            lock (outputLock)
+            {
+                stdOut = stdoutBuilder.ToString();
+                stdErr = stderrBuilder.ToString();
+            }
 
             return new SidecarProcessResult
             {
                 ExitCode = process.ExitCode,
-                StandardOutput = stdoutBuilder.ToString(),
-                StandardError = stderrBuilder.ToString()
+                StandardOutput = stdOut,
+                StandardError = stdErr
             };
         }
         catch (System.ComponentModel.Win32Exception w32Ex)
         {
+            string stdOut;
+            string stdErr;
+            lock (outputLock)
+            {
+                stdOut = stdoutBuilder.ToString();
+                stdErr = stderrBuilder.ToString();
+            }
+
             return new SidecarProcessResult
             {
                 ExitCode = w32Ex.NativeErrorCode != 0 ? w32Ex.NativeErrorCode : -1,
-                StandardOutput = stdoutBuilder.ToString(),
-                StandardError = $"Process execution failed: [WinError {w32Ex.NativeErrorCode}] {w32Ex.Message}"
+                StandardOutput = stdOut,
+                StandardError = string.IsNullOrWhiteSpace(stdErr)
+                    ? $"Process execution failed: [WinError {w32Ex.NativeErrorCode}] {w32Ex.Message}"
+                    : stdErr
             };
         }
         catch (OperationCanceledException)
@@ -475,7 +598,7 @@ public sealed class SidecarManager
         Action<string>? onStdErr = null,
         CancellationToken ct = default)
     {
-        return ExecuteSidecarAsync(binaryPath, SplitCommandLineArguments(arguments), onStdOut, onStdErr, ct);
+        return ExecuteSidecarAsync(binaryPath, SplitCommandLineArguments(arguments), onStdOut, onStdErr, inactivityTimeout: null, ct: ct);
     }
 
     private static IEnumerable<string> SplitCommandLineArguments(string commandLine)

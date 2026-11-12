@@ -1582,9 +1582,8 @@ public sealed partial class MainWindow : Window
             {
                 req.Url = CaptureGatekeeper.SanitizeMediaUrl(req.Url);
                 var mediaVm = App.Services.GetRequiredService<MediaDownloadViewModel>();
-                mediaVm.ExistingDownloadId = req.DownloadId;
+                mediaVm.InitializeCaptureHint(req.FileName, req.Quality, req.DownloadId);
                 mediaVm.MediaUrl = req.Url;
-                mediaVm.RequestedQuality = req.Quality;
                 _ = mediaVm.ProbeMediaAsync();
 
                 var mediaDialog = new MediaDownloadDialog(mediaVm);
@@ -1592,15 +1591,19 @@ public sealed partial class MainWindow : Window
                 if (mediaResult == ContentDialogResult.Primary || mediaResult == ContentDialogResult.Secondary)
                 {
                     await ReloadDownloadsFromDatabaseAsync();
-                    if (mediaResult == ContentDialogResult.Primary && mediaVm.LastEnqueuedItem != null)
+                    if (mediaVm.LastEnqueuedItem != null)
                     {
                         var enqueuedVm = ViewModel.AllDownloads.FirstOrDefault(d => d.Id.ToString("N") == mediaVm.LastEnqueuedItem.Id);
                         if (enqueuedVm != null)
                         {
-                            _ = StartMediaDownloadAsync(enqueuedVm, formatId: mediaVm.LastSelectedFormatSelector);
-                            if (ViewModel.ShowMediaProgressDialog)
+                            enqueuedVm.PreferredFormatSelector = mediaVm.LastSelectedFormatSelector;
+                            if (mediaResult == ContentDialogResult.Primary)
                             {
-                                OpenDownloadDetails(enqueuedVm);
+                                _ = StartMediaDownloadAsync(enqueuedVm, formatId: mediaVm.LastSelectedFormatSelector);
+                                if (ViewModel.ShowMediaProgressDialog)
+                                {
+                                    OpenDownloadDetails(enqueuedVm);
+                                }
                             }
                         }
                     }
@@ -2323,15 +2326,19 @@ public sealed partial class MainWindow : Window
         if (result == ContentDialogResult.Primary || result == ContentDialogResult.Secondary)
         {
             await ReloadDownloadsFromDatabaseAsync();
-            if (result == ContentDialogResult.Primary && mediaVm.LastEnqueuedItem != null)
+            if (mediaVm.LastEnqueuedItem != null)
             {
                 var enqueuedVm = ViewModel.AllDownloads.FirstOrDefault(d => d.Id.ToString("N") == mediaVm.LastEnqueuedItem.Id);
                 if (enqueuedVm != null)
                 {
-                    _ = StartMediaDownloadAsync(enqueuedVm, formatId: mediaVm.LastSelectedFormatSelector);
-                    if (ViewModel.ShowMediaProgressDialog)
+                    enqueuedVm.PreferredFormatSelector = mediaVm.LastSelectedFormatSelector;
+                    if (result == ContentDialogResult.Primary)
                     {
-                        OpenDownloadDetails(enqueuedVm);
+                        _ = StartMediaDownloadAsync(enqueuedVm, formatId: mediaVm.LastSelectedFormatSelector);
+                        if (ViewModel.ShowMediaProgressDialog)
+                        {
+                            OpenDownloadDetails(enqueuedVm);
+                        }
                     }
                 }
             }
@@ -2814,6 +2821,15 @@ public sealed partial class MainWindow : Window
 
     public Task StartMediaDownloadAsync(DownloadItemViewModel vm, string? formatId = null, CancellationToken externalCt = default)
     {
+        if (!string.IsNullOrWhiteSpace(formatId))
+        {
+            vm.PreferredFormatSelector = formatId;
+        }
+        else if (!string.IsNullOrWhiteSpace(vm.PreferredFormatSelector))
+        {
+            formatId = vm.PreferredFormatSelector;
+        }
+
         if (_activeDownloads.ContainsKey(vm.Id)) return Task.CompletedTask;
 
         if (_activeDownloads.Count >= ViewModel.MaxConcurrentDownloads)
@@ -2864,6 +2880,18 @@ public sealed partial class MainWindow : Window
                     CreatedAtUtc = DateTime.UtcNow
                 };
 
+                var cleanDestPath = StreamRecorder.NormalizeFinalDestinationPath(dbItem.DestinationPath);
+                if (!string.IsNullOrWhiteSpace(cleanDestPath) && !string.Equals(cleanDestPath, dbItem.DestinationPath, StringComparison.Ordinal))
+                {
+                    dbItem.DestinationPath = cleanDestPath;
+                    dbItem.FileName = Path.GetFileName(cleanDestPath);
+                    DispatcherQueue.TryEnqueue(() =>
+                    {
+                        vm.SavePath = cleanDestPath;
+                        vm.FileName = dbItem.FileName;
+                    });
+                }
+
                 dbItem.Status = DownloadStatus.Downloading;
                 await db.SaveDownloadAsync(dbItem, CancellationToken.None).ConfigureAwait(false);
 
@@ -2876,7 +2904,7 @@ public sealed partial class MainWindow : Window
                 {
                     var now = DateTime.UtcNow;
                     var elapsedMs = (now - lastUiUpdateTime).TotalMilliseconds;
-                    if (elapsedMs < 120 && args.ProgressPercentage < 100)
+                    if (!args.IsMerging && elapsedMs < 120 && args.ProgressPercentage < 100)
                     {
                         return; // Throttle UI dispatch to ~8 Hz
                     }
@@ -2884,6 +2912,27 @@ public sealed partial class MainWindow : Window
 
                     DispatcherQueue.TryEnqueue(() =>
                     {
+                        if (args.IsMerging)
+                        {
+                            vm.Status = DownloadStatus.Verifying;
+                            vm.SpeedBytesPerSec = 0;
+                            vm.RemainingTime = TimeSpan.Zero;
+                            vm.ProgressPercentage = 100.0;
+                            if (vm.Segments.Count > 0)
+                            {
+                                vm.Segments[0].Status = "Merging";
+                            }
+                            ViewModel.UpdateMetrics();
+                            UpdateFooterTelemetry();
+                            if (ViewModel.SelectedItem == vm) UpdateInspectorDetails(vm);
+                            return;
+                        }
+
+                        if (vm.Status != DownloadStatus.Downloading)
+                        {
+                            vm.Status = DownloadStatus.Downloading;
+                        }
+
                         var total = args.TotalBytes > 0 ? args.TotalBytes : (dbItem.TotalBytes > 0 ? dbItem.TotalBytes : vm.TotalBytes);
                         var current = args.DownloadedBytes > 0 ? args.DownloadedBytes : (total > 0 ? (long)(total * (args.ProgressPercentage / 100.0)) : 0);
 
@@ -2891,6 +2940,8 @@ public sealed partial class MainWindow : Window
                         if (speed > 0)
                         {
                             smoothedSpeed = smoothedSpeed > 0 ? (smoothedSpeed * 0.6) + (speed * 0.4) : speed;
+                            lastTime = now;
+                            lastBytes = current;
                         }
                         else
                         {
@@ -2901,6 +2952,11 @@ public sealed partial class MainWindow : Window
                                 smoothedSpeed = smoothedSpeed > 0 ? (smoothedSpeed * 0.6) + (instantSpeed * 0.4) : instantSpeed;
                                 lastTime = now;
                                 lastBytes = current;
+                            }
+                            else if (elapsed >= 1.5 && current <= lastBytes)
+                            {
+                                smoothedSpeed *= 0.5;
+                                if (smoothedSpeed < 1024) smoothedSpeed = 0;
                             }
                         }
 
@@ -2926,6 +2982,7 @@ public sealed partial class MainWindow : Window
                         else
                         {
                             var seg = vm.Segments[0];
+                            seg.Status = "Downloading";
                             seg.EndOffset = Math.Max(0, total - 1);
                             seg.Update(current, effectiveSpeed);
                             seg.UpdateMetrics(total);

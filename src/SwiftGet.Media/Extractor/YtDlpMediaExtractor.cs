@@ -24,6 +24,21 @@ public sealed class YtDlpMediaExtractor : IMediaExtractor
         _sidecarManager = sidecarManager ?? throw new ArgumentNullException(nameof(sidecarManager));
     }
 
+    public static IReadOnlyList<string> BuildExtractorArgumentList(string mediaUrl)
+    {
+        return
+        [
+            "--dump-single-json",
+            "--no-warnings",
+            "--no-playlist",
+            "--force-ipv4",
+            "--socket-timeout", "12",
+            "--retries", "3",
+            "--extractor-args", "youtube:player_client=default,-visionos",
+            mediaUrl
+        ];
+    }
+
     public async Task<MediaMetadata> ExtractMetadataAsync(string mediaUrl, CancellationToken ct = default)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(mediaUrl);
@@ -40,8 +55,52 @@ public sealed class YtDlpMediaExtractor : IMediaExtractor
             throw new FileNotFoundException("yt-dlp binary is required for media extraction but was not found.");
         }
 
-        var args = new[] { "--dump-single-json", "--no-warnings", "--no-playlist", mediaUrl };
-        var result = await SidecarManager.ExecuteSidecarAsync(ytDlpPath, args, ct: ct).ConfigureAwait(false);
+        var args = BuildExtractorArgumentList(mediaUrl);
+        SidecarProcessResult? result = null;
+        Exception? lastException = null;
+
+        for (int attempt = 1; attempt <= 2; attempt++)
+        {
+            ct.ThrowIfCancellationRequested();
+            try
+            {
+                result = await SidecarManager.ExecuteSidecarAsync(
+                    ytDlpPath,
+                    args,
+                    ct: ct,
+                    inactivityTimeout: TimeSpan.FromSeconds(25)).ConfigureAwait(false);
+
+                if (result.Success && !string.IsNullOrWhiteSpace(result.StandardOutput))
+                {
+                    break;
+                }
+            }
+            catch (TimeoutException tex) when (!ct.IsCancellationRequested && attempt < 2)
+            {
+                lastException = tex;
+                continue;
+            }
+            catch (TimeoutException tex) when (!ct.IsCancellationRequested)
+            {
+                throw new InvalidOperationException($"yt-dlp extraction timed out: {tex.Message}", tex);
+            }
+
+            if (attempt < 2 && result != null)
+            {
+                var errCheck = result.StandardError;
+                if (errCheck.Contains("DRM", StringComparison.OrdinalIgnoreCase) ||
+                    errCheck.Contains("protected", StringComparison.OrdinalIgnoreCase) ||
+                    errCheck.Contains("Widevine", StringComparison.OrdinalIgnoreCase))
+                {
+                    break;
+                }
+            }
+        }
+
+        if (result == null)
+        {
+            throw new InvalidOperationException($"yt-dlp extraction failed: {lastException?.Message ?? "No output returned."}");
+        }
 
         if (!result.Success)
         {
@@ -63,7 +122,21 @@ public sealed class YtDlpMediaExtractor : IMediaExtractor
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(jsonText);
 
-        using var doc = JsonDocument.Parse(jsonText);
+        var trimmed = jsonText.Trim();
+        if (!trimmed.StartsWith('{'))
+        {
+            foreach (var rawLine in trimmed.Split(['\r', '\n'], StringSplitOptions.RemoveEmptyEntries))
+            {
+                var candidate = rawLine.Trim();
+                if (candidate.StartsWith('{') && candidate.EndsWith('}'))
+                {
+                    trimmed = candidate;
+                    break;
+                }
+            }
+        }
+
+        using var doc = JsonDocument.Parse(trimmed);
         var root = doc.RootElement;
 
         // 1. DRM detection checks

@@ -61,5 +61,10 @@ public sealed partial class MediaDownloadDialog : ContentDialog
                 deferral.Complete();
             }
         };
+
+        CloseButtonClick += (s, e) =>
+        {
+            ViewModel.CancelProbe();
+        };
     }
 }

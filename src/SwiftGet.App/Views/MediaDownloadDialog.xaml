@@ -88,10 +88,10 @@
                             Background="{ThemeResource LayerFillColorDefaultBrush}">
                         <Grid HorizontalAlignment="Center" VerticalAlignment="Center">
                             <ProgressRing IsActive="{x:Bind ViewModel.IsProbing, Mode=OneWay}"
-                                          Visibility="{x:Bind ViewModel.IsProbing, Mode=OneWay}"
+                                          Visibility="{x:Bind ViewModel.ProbingVisibility, Mode=OneWay}"
                                           Width="32" Height="32" />
                             <FontIcon Glyph="&#xE714;" FontSize="28"
-                                      Visibility="{x:Bind ViewModel.ContentVisibility, Mode=OneWay}"
+                                      Visibility="{x:Bind ViewModel.MediaIconVisibility, Mode=OneWay}"
                                       Foreground="{ThemeResource AccentTextFillColorPrimaryBrush}" />
                         </Grid>
                     </Border>
@@ -142,7 +142,7 @@
         <!-- Row 4: Status Message -->
         <StackPanel Grid.Row="4" Spacing="4">
             <ProgressBar IsIndeterminate="{x:Bind ViewModel.IsProbing, Mode=OneWay}"
-                         Visibility="{x:Bind ViewModel.IsProbing, Mode=OneWay}" Height="3" />
+                         Visibility="{x:Bind ViewModel.ProbingVisibility, Mode=OneWay}" Height="3" />
             <TextBlock Text="{x:Bind ViewModel.StatusMessage, Mode=OneWay}"
                        FontSize="11" Foreground="{ThemeResource TextFillColorSecondaryBrush}"
                        TextWrapping="Wrap" />

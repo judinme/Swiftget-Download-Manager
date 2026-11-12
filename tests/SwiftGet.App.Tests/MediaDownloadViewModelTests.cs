@@ -360,6 +360,48 @@ public sealed class MediaDownloadViewModelTests : IAsyncDisposable
         vm.StatusMessage.Should().Be("Discovered 1 formats.");
     }
 
+    [Fact]
+    public async Task InitializeCaptureHint_PreFillsFileName_AndEnqueueWaitsForActiveProbe()
+    {
+        await _db.InitializeAsync();
+        var stubExtractor = new StubMediaExtractor
+        {
+            SimulatedDelayMs = 200,
+            MetadataToReturn = new MediaMetadata
+            {
+                Url = "https://www.youtube.com/watch?v=8E-PtxpAsG4",
+                Title = "Actual Extracted Title",
+                Formats =
+                [
+                    new MediaFormat
+                    {
+                        FormatId = "137",
+                        Extension = "mp4",
+                        Resolution = "1080p",
+                        Height = 1080,
+                        HasVideo = true,
+                        HasAudio = false,
+                        FileSizeBytes = 711_461_942
+                    }
+                ]
+            }
+        };
+
+        var vm = new MediaDownloadViewModel(stubExtractor, _db, _categoryManager);
+        vm.InitializeCaptureHint("Browser Captured Video Title", "1080p", "existing_id_123");
+
+        vm.FileName.Should().Be("Browser Captured Video Title.mp4");
+        vm.MediaUrl = "https://www.youtube.com/watch?v=8E-PtxpAsG4";
+
+        // Clicking Download while probe is still running waits briefly for the probe to complete
+        var enqueued = await vm.EnqueueDownloadAsync();
+        enqueued.Should().NotBeNull();
+        enqueued!.Id.Should().Be("existing_id_123");
+        enqueued.FileName.Should().Be("Actual Extracted Title.mp4");
+        enqueued.TotalBytes.Should().Be(711_461_942);
+        vm.LastSelectedFormatSelector.Should().StartWith("137+ba/");
+    }
+
     private sealed class StubMediaExtractor : IMediaExtractor
     {
         public MediaMetadata? MetadataToReturn { get; set; }
